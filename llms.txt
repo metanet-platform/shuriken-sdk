@@ -1,0 +1,34 @@
+# shuriken-sdk
+
+> The official SDK for apps on the Metanet social network at metanet.page. A hybrid typed / `call()` bridge to the parent platform over a signed, JSON-RPC-style postMessage protocol. Works in React or any JS/TS project. Zero runtime deps. 12 methods, closed surface.
+
+Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the uniform core (`ninja.call('pay', params)`). Identity is version-discriminated (V0 wallet / V1 purpose-keys); anchor on `canonicalId`. Every response is signature-verified before it resolves.
+
+## Start here
+- [README](./README.md): install, the hybrid model, quickstart, per-capability recipes, errors, React.
+- [AGENTS](./AGENTS.md): task-oriented playbook; the V0/V1 identity trap up top.
+- [PROTOCOL](./PROTOCOL.md): exact wire envelope, correlation, timeouts, signatures, streaming, handshake.
+- [manifest.json](./manifest.json): machine-readable source of truth — every method schema, error code, consent + streaming flags.
+
+## Methods (wire type → sugar)
+- connection → `ninja.connect({ request?, proofs?, salt?, navbg? })` → version-discriminated identity
+- pay → `ninja.pay.bsv(recipients, {broadcast?})` | `ninja.pay.icp({token,to,amount})` | `ninja.pay.kda({to,amount})` — bsv broadcast defaults true (finalizes on-chain → txid); `{broadcast:false}` returns authorized-only rawTxHex, finalize via `broadcastRawTx(rawTxHex, me.genericUseSeed)`
+- create-post → `ninja.feed.createPost({ headline, previewAsset?, appEmbed? })` → `{ postId }`
+- generate-proof → `ninja.proof.generate({ reason?, purpose? })` → Groth16 proof
+- full-transaction → `ninja.tx.get(txid)` → `{ txid, rawHex, bumpHex }`
+- token-history → `ninja.tx.history({ chain?, limit?, offset? })`
+- geolocation (stream) → `ninja.geo.current()` | `ninja.geo.watch()`; stop via break
+- qr-scan (stream) → `ninja.qr.scan(onResult)`; `.stop()`
+- open-link → `ninja.openLink(url)`
+- write-clipboard → `ninja.clipboard.write(text)` (no response)
+- uniform core for any method → `ninja.call(method, params, { timeoutMs?, signal? })`
+
+## Rules
+- Identity: branch on `me.anonymous`, then `me.version` (0 | 1). Only `canonicalId` exists on both. No `wallet || identities` fallback.
+- Errors: catch `NinjaError`, branch on `err.code` (closed union), localize with `t(err.code)`. `ERR_ABORTED` = user cancel.
+- ICP/KDA payments are single-recipient. App ZK proofs require V1.
+- `connect()` (init/transport) then `ninja.connect()` (identity) — different calls.
+
+## Optional
+- [MIGRATION](./docs/MIGRATION.md): moving a legacy bespoke ninja SDK onto shuriken-sdk.
+- Drop-in legacy shim: `import client from 'shuriken-sdk/compat'` — the legacy bespoke ninja SDK singleton surface (connect/payBSV/getBSVHistory/scanQRCode/on/off/once, same resolved shapes + localStorage keys) running on the verified engine; unsupported drift methods throw ERR_NOT_SUPPORTED.

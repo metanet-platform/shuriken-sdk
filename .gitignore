@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env
+.env.*
+*.tsbuildinfo
+
+# Standalone demo — lives in its own git repo (metanet-platform/caffeineai-demo-sdk)
+examples/caffeineai-demo-sdk/
+
+*.tgz

@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "shuriken-sdk",
+  "title": "Metanet social network app protocol",
+  "description": "The machine-readable source of truth for shuriken-sdk. Every TypeScript type, runtime validator, doc page, llms.txt anchor, and the runtime capabilities() snapshot are generated from this file, so they can never drift from each other or from the live parent handlers.",
+  "protocolVersion": 1,
+  "envelope": {
+    "command": "ninja-app-command",
+    "request": {
+      "description": "app -> parent",
+      "shape": { "command": "ninja-app-command", "detail": { "type": "<method>", "ref": "<uuid>", "...": "params" } }
+    },
+    "response": {
+      "description": "parent -> app; one type per method: <method>-response",
+      "shape": { "command": "ninja-app-command", "type": "<method>-response", "payload": { "ref": "<uuid>", "success": true, "responseCode": "OK_SUCCESS", "timestamp": "<ms-string>" }, "signature": "<hex>" }
+    },
+    "correlation": "payload.ref === detail.ref",
+    "signature": "verify hex over sha256(JSON.stringify(payload)) against the session pub (V0 wallet.publicKeyHex / V1 identities.app.pub) before resolving"
+  },
+  "commands": {
+    "connection": {
+      "wireType": "connection",
+      "responseType": "connection-response",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": "connection-overlay",
+      "streaming": false,
+      "description": "Connect the app to the user's identity. Returns a version-discriminated identity (V0 wallet | V1 purpose-scoped identities | anonymous). Optionally shares chain identities and mints ZK proofs in the same round trip.",
+      "sugar": "ninja.connect(params)",
+      "example": "const me = await ninja.connect({ request: ['bsv'], proofs: ['app'] })",
+      "request": {
+        "type": "object",
+        "properties": {
+          "request": { "type": "array", "items": { "enum": ["bsv", "icp", "kda"] }, "description": "identities to share (V1)" },
+          "proofs": { "type": "array", "items": { "enum": ["app", "bsv", "icp", "kda"] }, "description": "purposes to mint Groth16 proofs for" },
+          "salt": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$", "description": "optional per-app re-keying salt" },
+          "navbg": { "type": "string", "x-ninja-sanitize": "css-color" }
+        }
+      },
+      "response": {
+        "oneOf": [
+          { "title": "anonymous", "properties": { "anonymous": { "const": true } } },
+          { "title": "V0", "required": ["version", "wallet"], "properties": { "version": { "const": 0 }, "canonicalId": { "type": "string" }, "wallet": { "type": "object", "properties": { "address": {}, "publicKeyHex": {}, "rootPrincipal": {}, "bsvPubKey": {}, "canonicalId": {} } } } },
+          { "title": "V1", "required": ["version", "identities"], "properties": { "version": { "const": 1 }, "canonicalId": { "type": "string" }, "identities": { "required": ["app"], "properties": { "app": { "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "bsv": { "properties": { "pub": {}, "address": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "icp": { "properties": { "pub": {}, "principal": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "kda": { "properties": { "pub": {}, "account": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } } } } } }
+        ]
+      },
+      "errors": ["invalid_salt", "connection_failed", "ERR_ABORTED"]
+    },
+    "pay": {
+      "wireType": "pay",
+      "responseType": "pay-response",
+      "since": "1.0.0",
+      "requiresWallet": true,
+      "consent": "payment-overlay",
+      "streaming": false,
+      "description": "Ask the user to authorize a payment. Chain is inferred from the params: BSV (multi-recipient, sats/usd/fee), ICP (single recipient, named ledger), or KDA (single recipient). BSV two-phase: the wire response returns a signed-but-UNBROADCAST rawTxHex; the SDK's pay.bsv finalizes it via the Metanet broadcast API when broadcast=true (default, signed with the session genericUseSeed) or returns it authorized-only when broadcast=false.",
+      "sugar": "ninja.pay.bsv(recipients, {broadcast?, source?}) | ninja.pay.icp(params) | ninja.pay.kda(params)",
+      "example": "const { txid } = await ninja.pay.bsv([{ address: '1A1z...', sats: 5000, note: 'coffee' }])",
+      "x-shuriken-sdk-broadcast": { "default": true, "api": "https://api.metanet.ninja/data/api", "auth": "x-pubkey/x-signature signed with the connection's genericUseSeed", "clientErrors": ["ERR_NO_BROADCAST_KEY", "ERR_BROADCAST_FAILED"] },
+      "request": {
+        "oneOf": [
+          { "title": "BSV", "properties": { "recipients": { "type": "array", "items": { "type": "object", "properties": { "address": { "type": "string" }, "sats": { "type": "number" }, "usd": { "type": "number" }, "note": { "type": "string" }, "fee": { "type": "string" } } } } } },
+          { "title": "ICP", "required": ["token"], "properties": { "token": { "type": "object", "properties": { "protocol": { "const": "ICP" } } }, "recipients": { "type": "array", "maxItems": 1 } } },
+          { "title": "KDA", "required": ["token"], "properties": { "token": { "type": "object", "properties": { "protocol": { "const": "KDA" } } }, "recipients": { "type": "array", "maxItems": 1 } } }
+        ]
+      },
+      "response": {
+        "oneOf": [
+          { "title": "BSV", "properties": { "rawTxHex": { "type": "string" } } },
+          { "title": "ICP", "properties": { "transferOutcome": { "type": "integer", "x-ninja-bigint": true } } },
+          { "title": "KDA", "properties": { "requestKey": { "type": "string" }, "chainId": { "type": "string" } } }
+        ]
+      },
+      "errors": ["ERR_MISSING_PARAMS", "ERR_UNSUPPORTED_TOKEN", "ERR_MULTIPLE_RECIPIENTS", "ERR_ICP_PREP_FAILED", "ERR_KDA_PREP_FAILED", "ERR_ABORTED", "ERR_UNKNOWN"]
+    },
+    "create-post": {
+      "wireType": "create-post",
+      "responseType": "create-post-response",
+      "since": "1.0.0",
+      "requiresWallet": true,
+      "consent": "create-post-overlay",
+      "streaming": false,
+      "description": "Publish a post to the Metanet feed on the user's behalf. The app name is forced platform-side from the registered app (anti-spoofing) and cannot be set by the caller.",
+      "sugar": "ninja.feed.createPost(params)",
+      "example": "const { postId } = await ninja.feed.createPost({ headline: 'gm', previewAsset: file })",
+      "request": {
+        "type": "object",
+        "required": ["headline"],
+        "properties": {
+          "headline": { "type": "string" },
+          "nftDescription": { "type": "string" },
+          "previewAsset": { "x-ninja-type": "File" },
+          "appEmbed": { "type": "object", "properties": { "url": { "type": "string" }, "type": { "type": "string" }, "shape": { "enum": ["landscape", "portrait", "square"] } } }
+        }
+      },
+      "response": { "properties": { "postId": { "type": "string" } } },
+      "errors": ["ERR_MISSING_PARAMS", "ERR_ABORTED", "ERR_UNKNOWN"]
+    },
+    "generate-proof": {
+      "wireType": "generate-proof",
+      "responseType": "generate-proof-response",
+      "since": "1.0.0",
+      "requiresWallet": true,
+      "consent": "proof-overlay",
+      "streaming": false,
+      "description": "Mint a Groth16 zero-knowledge identity proof binding the session to the user's canonicalId. Prefer requesting proofs in connect() to batch consent. App proofs require a V1 identity.",
+      "sugar": "ninja.proof.generate(params)",
+      "example": "const proof = await ninja.proof.generate({ reason: 'gate premium' })",
+      "request": { "type": "object", "properties": { "reason": { "type": "string" }, "purpose": { "enum": ["app", "bsv", "icp", "kda"] } } },
+      "response": { "properties": { "canonicalId": {}, "pub": {}, "proof": { "$ref": "#/$defs/groth16" }, "seedCommitment": {}, "appId": {}, "appUrl": {} } },
+      "errors": ["user_denied", "app_proof_requires_v1", "ERR_ABORTED", "ERR_UNKNOWN"]
+    },
+    "full-transaction": {
+      "wireType": "full-transaction",
+      "responseType": "full-transaction-response",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": null,
+      "streaming": false,
+      "description": "Fetch a full BSV transaction (raw hex + BUMP merkle path) for SPV verification.",
+      "sugar": "ninja.tx.get(txid)",
+      "example": "const { rawHex, bumpHex } = await ninja.tx.get('e3b0c4...')",
+      "request": { "type": "object", "required": ["txid"], "properties": { "txid": { "type": "string" } } },
+      "response": { "properties": { "txid": {}, "rawHex": {}, "bumpHex": {} } },
+      "errors": ["ERR_TX_NOT_FOUND", "ERR_MISSING_PARAMS", "ERR_UNKNOWN"]
+    },
+    "token-history": {
+      "wireType": "token-history",
+      "responseType": "token-history-response",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": null,
+      "streaming": false,
+      "description": "Paginated transaction history for a chain.",
+      "sugar": "ninja.tx.history(params)",
+      "example": "const { transactions, hasMore } = await ninja.tx.history({ chain: 'bsv', limit: 100 })",
+      "request": { "type": "object", "properties": { "chain": { "enum": ["bsv", "icp", "kda"] }, "limit": { "type": "number" }, "offset": { "type": "number" } } },
+      "response": { "properties": { "transactions": { "type": "array" }, "hasMore": { "type": "boolean" }, "totalCount": { "type": "number" } } },
+      "errors": ["ERR_UNKNOWN"]
+    },
+    "geolocation": {
+      "wireType": "geolocation",
+      "responseType": "geolocation-response",
+      "stopType": "geolocation-stop",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": "geolocation-permission",
+      "streaming": true,
+      "description": "Location access. One-shot resolves the first accurate (<=100m) fix; watch() streams fixes until you stop. Breaking the stream sends geolocation-stop.",
+      "sugar": "ninja.geo.current() | ninja.geo.watch()",
+      "example": "for await (const fix of ninja.geo.watch()) draw(fix)",
+      "request": { "type": "object", "properties": { "highAccuracy": { "type": "boolean" } } },
+      "response": { "properties": { "latitude": {}, "longitude": {}, "accuracy": {}, "isFinal": {} } },
+      "errors": ["ERR_ABORTED", "ERR_NOT_SUPPORTED", "ERR_UNKNOWN"]
+    },
+    "qr-scan": {
+      "wireType": "qr-scan",
+      "responseType": "qr-scan-response",
+      "stopType": "qr-scan-stop",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": "camera-permission",
+      "streaming": true,
+      "description": "Open the camera QR scanner. Stays open, emitting scan results, until stop() sends qr-scan-stop.",
+      "sugar": "ninja.qr.scan(onResult)",
+      "example": "const s = ninja.qr.scan(({ rawValue }) => handle(rawValue)); s.stop();",
+      "request": { "type": "object", "properties": {} },
+      "response": { "properties": { "rawValue": {}, "parsed": {} } },
+      "errors": ["ERR_NO_DATA", "ERR_ABORTED", "ERR_NOT_SUPPORTED"]
+    },
+    "open-link": {
+      "wireType": "open-link",
+      "responseType": "open-link-response",
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": "external-link-overlay",
+      "streaming": false,
+      "description": "Open an external link, subject to a user consent overlay.",
+      "sugar": "ninja.openLink(url)",
+      "example": "await ninja.openLink('https://example.com')",
+      "request": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri" } } },
+      "response": { "properties": {} },
+      "errors": ["ERR_ABORTED", "ERR_MISSING_PARAMS"]
+    },
+    "write-clipboard": {
+      "wireType": "write-clipboard",
+      "responseType": null,
+      "since": "1.0.0",
+      "requiresWallet": false,
+      "consent": null,
+      "streaming": false,
+      "noReply": true,
+      "description": "Write text to the user's clipboard. Fire-and-forget: there is no response.",
+      "sugar": "ninja.clipboard.write(text)",
+      "example": "ninja.clipboard.write('copied text')",
+      "request": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } },
+      "response": null,
+      "errors": []
+    }
+  },
+  "$defs": {
+    "groth16": { "type": "object", "properties": { "pi_a": { "type": "array" }, "pi_b": { "type": "array" }, "pi_c": { "type": "array" } } },
+    "proofEnvelope": { "type": "object", "properties": { "scheme": { "const": "metanet-zk-identity-v1" }, "purpose": { "enum": ["app", "bsv", "icp", "kda"] }, "seedCommitment": { "type": "string" }, "proof": { "$ref": "#/$defs/groth16" }, "assetId": { "type": "string" } } }
+  }
+}

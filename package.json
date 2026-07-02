@@ -1,0 +1,82 @@
+{
+  "name": "shuriken-sdk",
+  "version": "0.1.0",
+  "description": "The official SDK for apps on the Metanet social network (metanet.page). One typed, signature-verifying bridge to the parent platform: identity, BSV/ICP/KDA payments, feed posts, ZK proofs, transactions, geolocation, QR. Works in React or any JS/TS project.",
+  "keywords": [
+    "metanet",
+    "bsv",
+    "bitcoin-sv",
+    "icp",
+    "sdk",
+    "iframe",
+    "postmessage",
+    "wallet",
+    "zk-proof",
+    "web3"
+  ],
+  "license": "MIT",
+  "author": "metanet-platform <support@metanet.ninja>",
+  "homepage": "https://github.com/metanet-platform/shuriken-sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metanet-platform/shuriken-sdk.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "manifest.json",
+    "llms.txt",
+    "AGENTS.md",
+    "PROTOCOL.md",
+    "README.md"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./compat": {
+      "types": "./dist/compat.d.ts",
+      "import": "./dist/compat.js",
+      "require": "./dist/compat.cjs"
+    },
+    "./manifest.json": "./manifest.json",
+    "./llms.txt": "./llms.txt",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "build": "npm run generate && tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@noble/curves": "^1.4.0",
+    "@noble/hashes": "^1.4.0",
+    "@types/react": "^18.3.31",
+    "react": "^18.3.1",
+    "tsup": "^8.2.4",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

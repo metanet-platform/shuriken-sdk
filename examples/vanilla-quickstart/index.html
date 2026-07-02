@@ -1,0 +1,275 @@
+<!--
+  shuriken-sdk — vanilla (no framework) quickstart.
+
+  WHAT: a single, self-contained HTML page that connects to the Metanet parent,
+        renders the resolved identity (V0 / V1 / anonymous), and wires up the
+        four most common actions — a BSV payment, a feed post, a ZK identity
+        proof, and a one-shot geolocation read — each with typed error handling.
+  WHY:  it is the "does it work at all" reference an integrator copies first.
+        It uses ONLY the public `shuriken-sdk` surface (no internals), branches on
+        `me.version` exactly the way AGENTS.md mandates, and localizes errors by
+        `err.code`. No build tooling, no framework: open it inside a Metanet
+        iframe and it runs.
+
+  ────────────────────────────────────────────────────────────────────────────
+  IMPORTANT — this needs the BUILT ESM bundle.
+  ────────────────────────────────────────────────────────────────────────────
+  The <script type="module"> below imports from a RELATIVE path to the built
+  bundle: `../../dist/index.js`. That file does not exist until you build it:
+
+      npm install          # once, at the repo root
+      npm run build        # produces dist/index.js (+ .cjs, .d.ts)
+
+  Then serve this folder over http(s) (ES modules do NOT load over file://):
+
+      npx serve examples/vanilla-quickstart      # or any static server
+      # → open the printed URL *inside a Metanet iframe app shell*
+
+  In a real deployed app you would instead install the package and import the
+  bare specifier:  import { connect } from 'shuriken-sdk';
+  We import the relative dist path here only so this example runs straight from
+  the repo without a publish step. Both resolve to the same ESM entry.
+
+  This page must run EMBEDDED (inside the Metanet iframe). Opened top-level it
+  will show the `ERR_NOT_EMBEDDED` state — that's expected, not a bug.
+-->
+
+<main class="wrap">
+  <h1>shuriken-sdk · vanilla quickstart</h1>
+  <p class="lede">
+    A no-framework demo of <code>connect()</code>, <code>pay.bsv()</code>,
+    <code>feed.createPost()</code>, <code>proof.generate()</code>, and
+    <code>geo.current()</code>. Must run inside a Metanet iframe.
+  </p>
+
+  <!-- Connection status + resolved identity. Populated by the module below. -->
+  <section id="identity" class="card" aria-live="polite">
+    <h2>Identity</h2>
+    <p id="status" class="status">Connecting…</p>
+    <dl id="identity-fields" class="fields" hidden></dl>
+  </section>
+
+  <!-- Action buttons. Disabled until a wallet-backed identity is connected. -->
+  <section class="card">
+    <h2>Actions</h2>
+    <div class="actions">
+      <button id="btn-pay" disabled>Pay 5 000 sats (BSV)</button>
+      <button id="btn-post" disabled>Post “gm” to the feed</button>
+      <button id="btn-proof" disabled>Generate app proof (V1)</button>
+      <button id="btn-geo" disabled>Read my location</button>
+    </div>
+    <!-- Every action reports success/failure here, localized by error code. -->
+    <p id="result" class="result" role="status"></p>
+  </section>
+</main>
+
+<!--
+  A tiny bit of styling. Inline so the example stays a single file. It is
+  deliberately minimal — this demo is about the SDK calls, not the CSS.
+-->
+<style>
+  .wrap { max-width: 40rem; margin: 2rem auto; padding: 0 1rem;
+          font: 16px/1.5 system-ui, sans-serif; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  .lede { color: #555; }
+  code { background: #f2f2f5; padding: 0.1em 0.35em; border-radius: 4px;
+         font-size: 0.9em; }
+  .card { border: 1px solid #e2e2ea; border-radius: 8px; padding: 1rem 1.25rem;
+          margin: 1rem 0; }
+  .card h2 { font-size: 1rem; margin: 0 0 0.5rem; text-transform: uppercase;
+             letter-spacing: 0.04em; color: #777; }
+  .status { font-weight: 600; }
+  .status[data-kind="connected"] { color: #167a3c; }
+  .status[data-kind="anonymous"] { color: #8a6d00; }
+  .status[data-kind="error"]     { color: #b3261e; }
+  .fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+  .fields dt { color: #777; }
+  .fields dd { margin: 0; font-family: ui-monospace, monospace;
+               word-break: break-all; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  button { font: inherit; padding: 0.5rem 0.9rem; border: 1px solid #cfcfe0;
+           border-radius: 6px; background: #fff; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result { min-height: 1.5em; margin-top: 0.75rem; font-family: ui-monospace, monospace; }
+</style>
+
+<script type="module">
+  // Import the BUILT ESM bundle. See the header comment: run `npm run build`
+  // first. In a published app you'd write:  import { connect, NinjaError, isNinjaError, tokens } from 'shuriken-sdk';
+  import { connect, NinjaError, isNinjaError, tokens } from '../../dist/index.js';
+
+  // ── DOM handles ───────────────────────────────────────────────────────────
+  const $status = document.getElementById('status');
+  const $fields = document.getElementById('identity-fields');
+  const $result = document.getElementById('result');
+  const buttons = {
+    pay: document.getElementById('btn-pay'),
+    post: document.getElementById('btn-post'),
+    proof: document.getElementById('btn-proof'),
+    geo: document.getElementById('btn-geo'),
+  };
+
+  /**
+   * Render one identity field row into the <dl>. Tiny helper so the identity
+   * card stays declarative below.
+   */
+  function addField(label, value) {
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.textContent = value ?? '—';
+    $fields.append(dt, dd);
+  }
+
+  /**
+   * Toy i18n. In a real app you'd feed `err.code` to your translation function:
+   * `t(err.code)`. Here we keep a small local map so the demo shows a friendly,
+   * code-driven message without pulling in an i18n library. Unknown codes fall
+   * back to the code itself — never a raw English string.
+   */
+  const MESSAGES = {
+    ERR_ABORTED: 'You cancelled that.',
+    ERR_MULTIPLE_RECIPIENTS: 'ICP/KDA allow a single recipient only.',
+    ERR_UNSUPPORTED_TOKEN: 'That token/ledger is not supported.',
+    app_proof_requires_v1: 'App proofs need a V1 identity — trust canonicalId instead.',
+    user_denied: 'You declined the proof request.',
+    ERR_TIMEOUT: 'The wallet did not respond in time. Try again.',
+    ERR_SIGNATURE: 'The response could not be verified — ignored for safety.',
+    ERR_NOT_EMBEDDED: 'Open this app inside Metanet.',
+  };
+  const localize = (code) => MESSAGES[code] ?? code;
+
+  /**
+   * Show an action result. Success is plain text; a NinjaError is rendered by
+   * its localized `code` (the whole point of the typed error taxonomy).
+   */
+  function report(textOrError) {
+    if (isNinjaError(textOrError)) {
+      $result.textContent = `⚠ ${localize(textOrError.code)} (${textOrError.code})`;
+    } else {
+      $result.textContent = textOrError;
+    }
+  }
+
+  // ── Bring-up ────────────────────────────────────────────────────────────────
+  // `connect()` here is the SDK INIT call (transport + handshake). It is distinct
+  // from `ninja.connect()` (the identity request) — AGENTS.md "Don'ts": init first.
+  let ninja;
+  try {
+    ninja = await connect({
+      // In production, pin your real parent origin(s). We include the localhost
+      // dev relaxation here ONLY because this example is run from a static server
+      // during development. NEVER ship `dev: true`.
+      allowedOrigins: ['https://metanet.page', 'https://www.metanet.page'],
+      dev: true,
+      // Prefer the negotiation-aware V1 parent, fall back to the frozen V0 wire.
+      protocols: [1, 0],
+    });
+  } catch (err) {
+    // The most common first-run failure: the page was opened top-level, not in an
+    // iframe. Surface it clearly instead of hanging.
+    $status.textContent = isNinjaError(err) ? localize(err.code) : String(err);
+    $status.dataset.kind = 'error';
+    throw err; // stop the module; nothing else can run without a transport.
+  }
+
+  // ── Identity request ────────────────────────────────────────────────────────
+  // Ask for the user's identity, request their BSV chain identity, and batch a
+  // consent for an `app` ZK proof in the same round trip.
+  const me = await ninja.connect({ request: ['bsv'], proofs: ['app'] });
+
+  // Anchor UI to `canonicalId` — the ONLY field present on every version. Then
+  // branch on `me.version` to read version-specific fields (never mix them).
+  if (me.anonymous) {
+    $status.textContent = 'Not connected (anonymous). Sign in to Metanet to act.';
+    $status.dataset.kind = 'anonymous';
+  } else {
+    $status.textContent = `Connected · V${me.version}`;
+    $status.dataset.kind = 'connected';
+    $fields.hidden = false;
+
+    addField('canonicalId', me.canonicalId);
+    if (me.version === 0) {
+      // V0: a single wallet object, root-key signed.
+      addField('wallet.address', me.wallet.address);
+      addField('wallet.publicKeyHex', me.wallet.publicKeyHex);
+    } else if (me.version === 1) {
+      // V1: purpose-scoped keys, app-key signed.
+      addField('app.pub', me.app.pub);
+      if (me.bsv) addField('bsv.address', me.bsv.address);
+    }
+
+    // Enable the wallet-backed actions now that we have an identity.
+    for (const b of Object.values(buttons)) b.disabled = false;
+    // App proofs require V1; disable the button (with a hint) on a V0 user.
+    if (me.version === 0) {
+      buttons.proof.disabled = true;
+      buttons.proof.title = 'App proofs require a V1 identity';
+    }
+  }
+
+  // ── Action: BSV payment ───────────────────────────────────────────────────
+  buttons.pay.addEventListener('click', async () => {
+    report('Requesting payment…');
+    try {
+      const { rawTxHex } = await ninja.pay.bsv([
+        { address: '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', sats: 5000, note: 'shuriken-sdk demo' },
+      ]);
+      report(`✓ Broadcast. rawTxHex starts ${rawTxHex.slice(0, 16)}…`);
+    } catch (err) {
+      report(err); // NinjaError → localized by code.
+    }
+  });
+
+  // ── Action: feed post ─────────────────────────────────────────────────────
+  buttons.post.addEventListener('click', async () => {
+    report('Publishing post…');
+    try {
+      // You cannot set the app name — the platform forces it (anti-spoofing).
+      const { postId } = await ninja.feed.createPost({ headline: 'gm from shuriken-sdk' });
+      report(`✓ Posted. postId=${postId}`);
+    } catch (err) {
+      report(err);
+    }
+  });
+
+  // ── Action: ZK identity proof ─────────────────────────────────────────────
+  buttons.proof.addEventListener('click', async () => {
+    report('Generating proof…');
+    try {
+      const proof = await ninja.proof.generate({ reason: 'demo: prove identity' });
+      // Verify it client-side against the canonicalId we already hold.
+      const ok = ninja.identity.verifyProof(
+        {
+          scheme: 'metanet-zk-identity-v1',
+          purpose: 'app',
+          seedCommitment: proof.seedCommitment,
+          proof: proof.proof,
+        },
+        proof.canonicalId,
+      );
+      report(`✓ Proof for ${proof.canonicalId.slice(0, 12)}… · verifies=${ok}`);
+    } catch (err) {
+      report(err); // e.g. `app_proof_requires_v1` on a V0 user.
+    }
+  });
+
+  // ── Action: one-shot geolocation ──────────────────────────────────────────
+  buttons.geo.addEventListener('click', async () => {
+    report('Reading location…');
+    try {
+      const fix = await ninja.geo.current();
+      report(`✓ ${fix.latitude.toFixed(4)}, ${fix.longitude.toFixed(4)} (±${fix.accuracy ?? '?'}m)`);
+    } catch (err) {
+      report(err);
+    }
+  });
+
+  // Expose a couple of handles on `window` so you can poke around in the console:
+  //   `window.ninja.capabilities('pay')`, `window.tokens.ckUSDC`, etc.
+  window.ninja = ninja;
+  window.tokens = tokens;
+  // `NinjaError` referenced so bundlers/linters keep the import meaningful even
+  // if you delete an action above while experimenting.
+  void NinjaError;
+</script>
