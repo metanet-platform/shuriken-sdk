@@ -19,11 +19,13 @@ import type { CreatePostParams, CreatePostResult } from '../types';
  * Build the `ninja.feed` sugar object.
  *
  * WHAT: returns `{ createPost }`, a typed wrapper over `codec.call('create-post', …)`.
- * WHY:  `previewAsset` may be a `File`/`Blob`; we forward the params object
- *       verbatim so structured-clone carries the binary across `postMessage`
- *       intact (the transport posts the raw object, not JSON, so Blobs survive).
- *       No local reshaping is needed — the manifest's request schema matches the
- *       `CreatePostParams` type field-for-field.
+ * WHY:  `previewAsset` may be a `File`/`Blob`; structured-clone carries the binary
+ *       across `postMessage` intact (the transport posts the raw object, not JSON,
+ *       so Blobs survive). The parent (mediaHandler.js line 24) reads the content
+ *       off `data.detail.params` — a NESTED `params` object — so we wrap the
+ *       caller's content under `{ params }` rather than spreading it flat into
+ *       `detail`. Spreading it flat (the old behavior) left `detail.params`
+ *       undefined and the overlay opened with an empty form.
  */
 export function makeFeed(codec: Codec): { createPost(params: CreatePostParams): Promise<CreatePostResult> } {
   return {
@@ -35,7 +37,9 @@ export function makeFeed(codec: Codec): { createPost(params: CreatePostParams): 
      * @returns the new `postId`.
      */
     createPost(params: CreatePostParams): Promise<CreatePostResult> {
-      return codec.call<CreatePostResult>('create-post', params);
+      // Nest under `params` so the content lands at `detail.params`, which is
+      // exactly where mediaHandler.js reads it (`...(data.detail.params || {})`).
+      return codec.call<CreatePostResult>('create-post', { params });
     },
   };
 }

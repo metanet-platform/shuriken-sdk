@@ -149,13 +149,16 @@ export function makePay(
      */
     icp(params: IcpPayParams): Promise<IcpPayResult> {
       const ledger = resolveLedger(params.token);
-      // Build the single-recipient wire params. memo is optional and only
-      // included when provided (undefined would serialize as an explicit null
-      // on some hosts; omitting keeps the envelope clean).
-      const recipient: Record<string, unknown> = { to: params.to, amount: params.amount };
-      if (params.memo !== undefined) recipient['memo'] = params.memo;
+      // Build the single-recipient wire params EXACTLY as paymentHandler.js reads
+      // them: the parent gates the ICP form on `token.protocol === 'ICP'` AND
+      // `token.specification.ledgerId` (paymentHandler.js line 47) — a `token.ledger`
+      // sibling is invisible to it, so the request would silently fall through to
+      // the BSV form. Each recipient must carry `address` + `value` (line 105); the
+      // optional note travels as `note` (line 125 reads `note || reason`).
+      const recipient: Record<string, unknown> = { address: params.to, value: params.amount };
+      if (params.memo !== undefined) recipient['note'] = params.memo;
       return codec.call<IcpPayResult>('pay', {
-        token: { protocol: 'ICP', ledger },
+        token: { protocol: 'ICP', specification: { ledgerId: ledger } },
         recipients: [recipient],
       });
     },
@@ -173,9 +176,14 @@ export function makePay(
      */
     kda(params: KdaPayParams): Promise<KdaPayResult> {
       const chainId = params.chainId ?? '2';
+      // Shape EXACTLY as paymentHandler.js reads it: the KDA form is gated on
+      // `token.protocol === 'KDA'` (line 148); the chain id is read from
+      // `token.specification.chainId` (line 181, default '2'), NOT off the
+      // recipient; and each recipient must carry `address` + `value` (line 164),
+      // with the note under `note` (line 180 reads `note || reason`).
       return codec.call<KdaPayResult>('pay', {
-        token: { protocol: 'KDA' },
-        recipients: [{ to: params.to, amount: params.amount, chainId }],
+        token: { protocol: 'KDA', specification: { chainId } },
+        recipients: [{ address: params.to, value: params.amount }],
       });
     },
   };

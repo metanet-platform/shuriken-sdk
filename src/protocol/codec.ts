@@ -532,7 +532,19 @@ export class Codec {
       // Verified. Success → hand back the payload (or, when the caller asked for
       // the envelope, `{ payload, envelope }` so top-level extras like the
       // connection response's genericUseSeed survive); failure → typed NinjaError.
-      if (payload.success) {
+      //
+      // The connection-response is the ONE frame that puts `success` at the
+      // ENVELOPE top level (sibling of `payload`), not inside the payload — the
+      // parent's connectionHandler.js signs only the payload, so `success` (and
+      // the error code) ride outside it. Every other handler nests `success`
+      // inside `payload`. So we read the payload's flag first and fall back to the
+      // envelope's: without this, a perfectly good connection-response resolves as
+      // `payload.success === undefined` → failure → ERR_UNKNOWN.
+      // `payload.success` is typed `boolean`, but the connection frame legitimately
+      // omits it from the payload (it lives on the envelope), so read it loosely.
+      const payloadSuccess = (payload as { success?: unknown }).success;
+      const isSuccess = payloadSuccess ?? env.success;
+      if (isSuccess) {
         pending.resolve(pending.withEnvelope ? { payload, envelope: env } : payload);
       } else {
         pending.reject(NinjaError.fromPayload(payload, pending.method));

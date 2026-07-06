@@ -73,7 +73,16 @@ export class NinjaError extends Error {
     payload: ResponsePayload,
     method: NinjaMethod | string,
   ): NinjaError {
-    const code = (payload.responseCode as NinjaErrorCode) || 'ERR_UNKNOWN';
+    // Most handlers put the reason in `responseCode`. The connection handler is
+    // the exception: on failure it carries no `responseCode`, only an `error`
+    // code (`invalid_salt` / `connection_failed`) inside the payload. Fall back
+    // to `error` so a failed connection surfaces its real cause instead of a
+    // generic ERR_UNKNOWN.
+    const p = payload as { responseCode?: unknown; error?: unknown };
+    const code =
+      (p.responseCode as NinjaErrorCode) ||
+      (typeof p.error === 'string' ? (p.error as NinjaErrorCode) : undefined) ||
+      'ERR_UNKNOWN';
     return new NinjaError(code, { method, ref: payload.ref, payload });
   }
 }

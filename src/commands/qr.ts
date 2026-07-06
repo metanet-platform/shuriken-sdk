@@ -41,7 +41,14 @@ export function makeQr(codec: Codec): { scan(onResult: (result: QrScanResult) =>
      */
     scan(onResult: (result: QrScanResult) => void): Subscription {
       return codec.stream('qr-scan', {}, (payload: ResponsePayload) => {
-        onResult(payload as unknown as QrScanResult);
+        // The parent nests the decoded value under `payload.scanData`
+        // (simpleHandlers.js line 162: `{ rawValue, parsed? }`), NOT at the
+        // payload's top level. Unwrap it here — the codec has already gated the
+        // frame (only a `success: true` frame carries scanData; ERR_NO_DATA /
+        // ERR_ABORTED frames terminate the stream via onError, never reaching here),
+        // so `scanData` is present on every frame we deliver.
+        const scanData = (payload as { scanData?: QrScanResult }).scanData;
+        if (scanData) onResult(scanData);
       });
     },
   };
