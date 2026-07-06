@@ -20,7 +20,7 @@
  * Zero dependencies beyond the shared type contract.
  */
 
-import type { ConnectResult, NinjaIdentity, ProofEnvelope, ProofPurpose } from '../types';
+import type { ChainKind, ConnectResult, NinjaIdentity, ProofEnvelope, ProofPurpose } from '../types';
 
 /**
  * Normalize a raw `connection-response` payload into a {@link ConnectResult}.
@@ -81,11 +81,11 @@ export function normalizeConnection(payload: Record<string, unknown>): ConnectRe
 
     const appBlock = pickBlock(idBlock, 'app') ?? (isObject(app) ? app : undefined);
 
-    // Assemble the V1 identity. Per-chain blocks (bsv/icp/kda) are optional; each
-    // is included only when the parent actually shared it, so an app can narrow on
-    // `me.bsv` presence rather than reading a hollow object. `proofs` gathers every
-    // per-purpose ProofEnvelope the parent minted (top-level `proofs` map + any
-    // proof nested on a chain block).
+    // Assemble the V1 identity. Per-purpose blocks (bsv/icp/kda/content) are
+    // optional; each is included only when the parent actually shared it, so an
+    // app can narrow on `me.bsv` presence rather than reading a hollow object.
+    // `proofs` gathers every per-purpose ProofEnvelope the parent minted
+    // (top-level `proofs` map + any proof nested on a purpose block).
     const result: ConnectResult = {
       version: 1,
       anonymous: false,
@@ -96,12 +96,24 @@ export function normalizeConnection(payload: Record<string, unknown>): ConnectRe
       raw: payload,
     };
 
-    const bsv = buildChain(idBlock, 'bsv', 'address');
-    if (bsv) result.bsv = bsv as ConnectResultV1['bsv'];
-    const icp = buildChain(idBlock, 'icp', 'principal');
-    if (icp) result.icp = icp as ConnectResultV1['icp'];
-    const kda = buildChain(idBlock, 'kda', 'account');
-    if (kda) result.kda = kda as ConnectResultV1['kda'];
+    // Core purposes: one data-driven loop over the purpose → id-field table.
+    for (const [purpose, idField] of Object.entries(V1_PURPOSE_ID_FIELD)) {
+      const block = buildPurpose(idBlock, purpose, idField);
+      if (block) (result as Record<string, unknown>)[purpose] = block;
+    }
+
+    // UNKNOWN purposes (future platform additions / custom namespaces): pass
+    // their `identities` entry through verbatim under its own key, so a new
+    // purpose surfaces without an SDK release. Only real `identities` maps are
+    // scanned (when the parent hoists blocks to the top level, `idBlock` IS the
+    // payload and its non-purpose fields must not leak onto the result).
+    if (isObject(identities)) {
+      for (const [key, value] of Object.entries(identities)) {
+        if (key === 'app' || key in V1_PURPOSE_ID_FIELD) continue; // already typed above
+        if (!isObject(value)) continue; // a purpose entry is always an object
+        (result as Record<string, unknown>)[key] = value;
+      }
+    }
 
     return result;
   }
@@ -192,24 +204,40 @@ function buildAppId(appBlock: Record<string, unknown> | undefined): ConnectResul
 }
 
 /**
- * Build one per-chain identity block (bsv/icp/kda) if the parent shared it.
+ * The declarative purpose → id-field table driving the V1 assembly loop.
  *
- * WHAT: returns `{ [idField], pub, proof? }` for the chain, or `undefined` when
- *       the chain wasn't shared. `idField` is the chain's address-like key
- *       (`address` for bsv, `principal` for icp, `account` for kda).
+ * Each requestable core purpose maps to its chain-specific id-field name, or
+ * `null` for a pure key purpose with no chain address (`content`). `app` is
+ * deliberately absent — it is the session signer, built by {@link buildAppId}.
+ * Adding a core purpose = one line here + the `IdentityV1` field in types.ts.
+ */
+const V1_PURPOSE_ID_FIELD: Record<ChainKind, string | null> = {
+  bsv: 'address',
+  icp: 'principal',
+  kda: 'account',
+  content: null,
+};
+
+/**
+ * Build one per-purpose identity block (bsv/icp/kda/content) if the parent
+ * shared it.
+ *
+ * WHAT: returns `{ [idField]?, pub, proof? }` for the purpose, or `undefined`
+ *       when it wasn't shared. `idField` is the purpose's address-like key from
+ *       {@link V1_PURPOSE_ID_FIELD} (`null` = pure key purpose, no id field).
  * WHY:  V1 identities are purpose-scoped; an app should be able to check
  *       `me.bsv` presence, so we only emit a block that actually exists rather
  *       than a hollow one with empty strings.
  */
-function buildChain(
+function buildPurpose(
   idBlock: Record<string, unknown>,
-  chain: 'bsv' | 'icp' | 'kda',
-  idField: 'address' | 'principal' | 'account',
+  purpose: string,
+  idField: string | null,
 ): Record<string, unknown> | undefined {
-  const block = pickBlock(idBlock, chain);
+  const block = pickBlock(idBlock, purpose);
   if (!block) return undefined;
   const out: Record<string, unknown> = {
-    [idField]: asString(block[idField]) ?? '',
+    ...(idField !== null ? { [idField]: asString(block[idField]) ?? '' } : {}),
     pub: asString(block['pub']) ?? '',
   };
   const proof = asProof(block['proof']);
@@ -220,30 +248,35 @@ function buildChain(
 /**
  * Collect every per-purpose ProofEnvelope the parent minted.
  *
- * WHAT: merges a top-level `proofs` map with any `proof` nested on a chain block,
- *       keyed by {@link ProofPurpose}.
+ * WHAT: merges a top-level `proofs` map with any `proof` nested on a purpose
+ *       block, keyed by {@link ProofPurpose}.
  * WHY:  proofs can arrive either as a dedicated `proofs: { app, bsv, ... }` map or
  *       inline on each identity block; gathering both here means the app reads one
- *       canonical `me.proofs` regardless of which layout the parent used.
+ *       canonical `me.proofs` regardless of which layout the parent used. Both
+ *       scans are data-driven off the payload's own keys (never a hardcoded
+ *       purpose list), so proofs for future/custom purposes are collected too —
+ *       `asProof` gates on the envelope scheme, filtering out non-proof fields.
  */
 function collectProofs(
   payload: Record<string, unknown>,
   idBlock: Record<string, unknown>,
 ): Partial<Record<ProofPurpose, ProofEnvelope>> {
   const proofs: Partial<Record<ProofPurpose, ProofEnvelope>> = {};
-  const purposes: ProofPurpose[] = ['app', 'bsv', 'icp', 'kda'];
 
-  // Top-level `proofs` map wins as the explicit source.
+  // Top-level `proofs` map wins as the explicit source — every key is honored,
+  // including purposes the SDK doesn't know yet.
   const map = pickBlock(payload, 'proofs');
   if (map) {
-    for (const p of purposes) {
+    for (const p of Object.keys(map)) {
       const env = asProof(map[p]);
       if (env) proofs[p] = env;
     }
   }
 
-  // Fill any gaps from a proof nested on the identity block's chain entry.
-  for (const p of purposes) {
+  // Fill any gaps from a proof nested on the identity block's purpose entry.
+  // (When the parent hoists blocks to the top level, `idBlock` is the payload
+  // itself; the scheme gate in `asProof` keeps non-purpose fields out.)
+  for (const p of Object.keys(idBlock)) {
     if (proofs[p]) continue;
     const env = asProof(pickBlock(idBlock, p)?.['proof']);
     if (env) proofs[p] = env;

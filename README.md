@@ -80,7 +80,7 @@ ninja.capabilities;   // Set of methods this parent build supports
 `ninja.connect()` returns the user's identity, **normalized across the two identity versions** and discriminated on `version` so TypeScript stops you from mixing them up:
 
 ```ts
-const me = await ninja.connect({ request: ['bsv', 'icp'], proofs: ['app'] });
+const me = await ninja.connect({ request: ['bsv', 'icp', 'content'], proofs: ['app'] });
 
 if (me.anonymous) {
   showLoginNudge();
@@ -89,13 +89,26 @@ if (me.anonymous) {
 } else {
   me.bsv?.address;               // V1: purpose-scoped keys, app-key signed
   me.icp?.principal;
+  me.content?.pub;               // content: pure key purpose — pub only, no chain address
 }
 
 me.canonicalId;                  // the stable user anchor — present on BOTH versions
 me.raw;                          // fully-typed escape hatch to every original field
 ```
 
-> **V0 vs V1 — read this once.** V0 is the legacy identity (a single `wallet`, signed with the root key). V1 is the standard going forward (purpose-scoped `app`/`bsv`/`icp`/`kda` keys, signed with the **app-specific** key). Build for V1; the SDK normalizes V0 for you and verifies each with the right scheme. The only field guaranteed on both is `canonicalId` — anchor your app to that.
+> **V0 vs V1 — read this once.** V0 is the legacy identity (a single `wallet`, signed with the root key). V1 is the standard going forward (purpose-scoped `app`/`bsv`/`icp`/`kda`/`content` keys, signed with the **app-specific** key). Build for V1; the SDK normalizes V0 for you and verifies each with the right scheme. The only field guaranteed on both is `canonicalId` — anchor your app to that.
+
+> **Purposes are extensible.** `app`/`bsv`/`icp`/`kda`/`content` are the core set today (`CORE_IDENTITY_PURPOSES`). Future platform versions may add more — including custom namespaces — and the SDK forwards unknown purposes untouched: they surface verbatim on `me` under their own key, and always via `me.raw`. No SDK release required.
+
+### Asking for more later (incremental consent)
+
+`ninja.connect()` is **re-callable** — it is the canonical way to request identities or proofs after the first handshake. Already-approved items resolve **silently** (no overlay); any **new** item re-prompts the user with the full list. Approvals persist across visits; denials are per-visit.
+
+```ts
+await ninja.connect({ request: ['bsv'] });                       // first visit: prompts
+await ninja.connect({ request: ['bsv'] });                       // later: silent (already approved)
+await ninja.connect({ request: ['bsv', 'content'], proofs: ['content'] }); // new items: re-prompts the full list
+```
 
 ## Payments
 
@@ -130,7 +143,9 @@ const { requestKey } = await ninja.pay.kda({ to: 'k:abc...', amount: 1.5 });
 ```ts
 const { postId } = await ninja.feed.createPost({ headline: 'gm', previewAsset: file });
 
-const proof = await ninja.proof.generate({ reason: 'gate premium' });   // Groth16; prefer connect({ proofs })
+// App-identity proof shortcut (app purpose ONLY — no purpose param). For other
+// purposes, re-call ninja.connect({ request, proofs }) — the canonical ask-later way.
+const proof = await ninja.proof.generate({ reason: 'gate premium' });
 
 const tx   = await ninja.tx.get(txid);                       // { txid, rawHex, bumpHex } for SPV
 const hist = await ninja.tx.history({ chain: 'bsv', limit: 100 });

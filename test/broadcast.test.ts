@@ -70,4 +70,19 @@ describe('toConnectionWireParams', () => {
       identities: { kda: { proof: true } },
     });
   });
+
+  it("routes the 'content' core purpose through identities like any chain purpose", () => {
+    // content is the 5th core purpose (pure key purpose — no chain address);
+    // on the wire it is a plain identities entry, never app-special-cased.
+    expect(toConnectionWireParams({ request: ['content'], proofs: ['content'] })).toEqual({
+      identities: { content: { proof: true } },
+    });
+  });
+
+  it('forwards an unknown/custom future purpose untouched (no SDK release needed)', () => {
+    // ProofPurpose is open (string & {}): unknown purposes flow through verbatim.
+    expect(toConnectionWireParams({ proofs: ['acme.loyalty'] })).toEqual({
+      identities: { 'acme.loyalty': { proof: true } },
+    });
+  });
 });

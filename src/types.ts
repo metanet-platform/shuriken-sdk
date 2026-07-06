@@ -156,8 +156,39 @@ export interface ProofEnvelope {
   assetId?: string;
 }
 
-export type ProofPurpose = 'app' | 'bsv' | 'icp' | 'kda';
-export type ChainKind = 'bsv' | 'icp' | 'kda';
+/**
+ * The CORE identity purposes the platform ships today. This is the core set —
+ * future platform versions may add more purposes, including custom namespaces,
+ * and the SDK forwards unknown purposes untouched (they surface verbatim on
+ * the normalized V1 identity under their own key, and always via `me.raw`),
+ * so a new purpose works without an SDK release.
+ *
+ * The asymmetry to know: `'app'` is a proof purpose but NOT a chain — it is
+ * the always-shared session signer. `'content'` is a pure key purpose (a
+ * `pub` + optional proof, NO chain address field).
+ */
+export const CORE_IDENTITY_PURPOSES = ['app', 'bsv', 'icp', 'kda', 'content'] as const;
+
+/** One of the core identity purposes shipped today. */
+export type CorePurpose = (typeof CORE_IDENTITY_PURPOSES)[number];
+
+/**
+ * Purposes that can be requested/shared as V1 identities — every core purpose
+ * except `'app'` (which is always shared; it's the session signer).
+ */
+export type ChainKind = Exclude<CorePurpose, 'app'>;
+
+/**
+ * Purposes that are real ledgers with wallets/history (`content` is a pure
+ * key purpose — no chain, no wallet endpoint, no transaction history).
+ */
+export type LedgerChainKind = Exclude<ChainKind, 'content'>;
+
+/**
+ * Any proof purpose: a core purpose today, or a future/custom namespace
+ * string (`string & {}` keeps core-purpose autocomplete while staying open).
+ */
+export type ProofPurpose = CorePurpose | (string & {});
 
 /** V0 identity: one wallet object, root-key signed. */
 export interface IdentityV0 {
@@ -173,7 +204,14 @@ export interface IdentityV0 {
   };
 }
 
-/** V1 identity: purpose-scoped keys, app-key signed. */
+/**
+ * V1 identity: purpose-scoped keys, app-key signed.
+ *
+ * Core purposes are typed explicitly below. UNKNOWN purposes (future platform
+ * additions / custom namespaces) still surface: the normalizer passes their
+ * `identities` entry through verbatim under its own key, reachable via the
+ * index signature (and always via `me.raw`), so new purposes need no SDK release.
+ */
 export interface IdentityV1 {
   version: 1;
   anonymous: false;
@@ -183,7 +221,11 @@ export interface IdentityV1 {
   bsv?: { address: string; pub: string; proof?: ProofEnvelope };
   icp?: { principal: string; pub: string; proof?: ProofEnvelope };
   kda?: { account: string; pub: string; proof?: ProofEnvelope };
+  /** Pure key purpose — a `pub` (+ optional proof), NO chain address field. */
+  content?: { pub: string; proof?: ProofEnvelope };
   proofs: Partial<Record<ProofPurpose, ProofEnvelope>>;
+  /** Forward-compat: purposes the SDK doesn't know yet, passed through verbatim. */
+  [purpose: string]: unknown;
 }
 
 /** No connected identity. */
@@ -219,11 +261,18 @@ export type ConnectResult = NinjaIdentity & {
  * 4. Per-command param + result types (typed sugar surface).
  * ------------------------------------------------------------------ */
 
-/** connection */
+/**
+ * connection
+ *
+ * `connect()` is RE-CALLABLE — it is the canonical way to request identities
+ * or proofs later, incrementally: already-approved items resolve silently
+ * (no overlay), while any NEW item re-prompts the user with the full list.
+ * Approvals persist across visits; denials are per-visit.
+ */
 export interface ConnectParams {
   /** Identities to share (V1); harmless on V0. */
   request?: ChainKind[];
-  /** Also mint Groth16 proofs for these purposes. */
+  /** Also mint Groth16 proofs for these purposes (core, or a future/custom namespace — forwarded untouched). */
   proofs?: ProofPurpose[];
   /** Optional per-app re-keying salt; must match /^[A-Za-z0-9._-]{1,64}$/. */
   salt?: string;
@@ -234,9 +283,10 @@ export interface ConnectParams {
    * `payload.wallets` array of `{ chain, address|principal|account, pub }`.
    * Distinct from `request` (which shares purpose-scoped *identities*); this
    * asks for the user's wallet endpoints per chain. Harmless on V0 parents
-   * (ignored, like every other V1 declaration field).
+   * (ignored, like every other V1 declaration field). Only real ledgers have
+   * wallet endpoints — `content` is a pure key purpose, so it has none.
    */
-  wallets?: ChainKind[];
+  wallets?: LedgerChainKind[];
 }
 
 /** pay — BSV */
@@ -322,8 +372,14 @@ export interface CreatePostParams {
 }
 export interface CreatePostResult { postId: string }
 
-/** generate-proof */
-export interface GenerateProofParams { reason?: string; purpose?: ProofPurpose }
+/**
+ * generate-proof — the APP-identity-proof shortcut. There is deliberately no
+ * `purpose` param: the parent only ever mints the `app` proof here. Request
+ * proofs for other purposes via `ninja.connect({ request, proofs })` — the
+ * canonical, re-callable way (approved items resolve silently, new items
+ * re-prompt the full list; approvals persist, denials are per-visit).
+ */
+export interface GenerateProofParams { reason?: string }
 export interface GenerateProofResult {
   canonicalId: string;
   pub: string;
@@ -336,8 +392,8 @@ export interface GenerateProofResult {
 /** full-transaction */
 export interface FullTransactionResult { txid: string; rawHex: string; bumpHex?: string }
 
-/** token-history */
-export interface TokenHistoryParams { chain?: ChainKind; limit?: number; offset?: number }
+/** token-history — ledgers only (`content` has no chain, hence no history). */
+export interface TokenHistoryParams { chain?: LedgerChainKind; limit?: number; offset?: number }
 export interface TokenHistoryResult {
   transactions: unknown[];
   hasMore: boolean;

@@ -212,6 +212,73 @@ describe('protocol/normalize', () => {
     }
   });
 
+  it("maps a 'content' identity entry (pure key purpose — pub only, no chain field)", () => {
+    const contentProof = {
+      scheme: 'metanet-zk-identity-v1',
+      purpose: 'content',
+      seedCommitment: 'sc-1',
+      proof: { pi_a: [], pi_b: [], pi_c: [] },
+    };
+    const payload = {
+      version: 1,
+      canonicalId: 'canon-v1',
+      identities: {
+        app: { pub: '03appkey' },
+        content: { pub: '03contentkey', proof: contentProof },
+      },
+    };
+    const me = normalizeConnection(payload);
+
+    if (me.version !== 1) throw new Error('expected V1 identity');
+    expect(me.content?.pub).toBe('03contentkey');
+    // content has NO chain address field — only pub (+ optional proof).
+    expect(Object.keys(me.content ?? {}).sort()).toEqual(['proof', 'pub']);
+    // The nested proof is also collected into the canonical proofs map.
+    expect(me.proofs['content']).toEqual(contentProof);
+  });
+
+  it('passes an UNKNOWN purpose entry through verbatim (forward-compat, no SDK release)', () => {
+    const payload = {
+      version: 1,
+      canonicalId: 'canon-v1',
+      identities: {
+        app: { pub: '03appkey' },
+        'acme.loyalty': { pub: '03loyaltykey', tier: 'gold' },
+      },
+      proofs: {
+        'acme.loyalty': {
+          scheme: 'metanet-zk-identity-v1',
+          purpose: 'acme.loyalty',
+          seedCommitment: 'sc-2',
+          proof: { pi_a: [], pi_b: [], pi_c: [] },
+        },
+      },
+    };
+    const me = normalizeConnection(payload);
+
+    if (me.version !== 1) throw new Error('expected V1 identity');
+    // The unknown purpose surfaces under its own key, UNTOUCHED (index signature).
+    expect(me['acme.loyalty']).toEqual({ pub: '03loyaltykey', tier: 'gold' });
+    // Its proof is collected from the top-level proofs map too.
+    expect(me.proofs['acme.loyalty']?.seedCommitment).toBe('sc-2');
+    // And `.raw` still carries everything.
+    expect(me.raw).toEqual(payload);
+  });
+
+  it('does NOT leak top-level payload fields as purposes when identities blocks are hoisted', () => {
+    // A parent may hoist `app` to the top level (no `identities` map). The
+    // unknown-purpose passthrough must only scan a real identities object.
+    const me = normalizeConnection({
+      version: 1,
+      canonicalId: 'canon-v1',
+      app: { pub: '03appkey' },
+      somethingElse: { nested: true },
+    });
+    if (me.version !== 1) throw new Error('expected V1 identity');
+    expect(me.app.pub).toBe('03appkey');
+    expect(me['somethingElse']).toBeUndefined();
+  });
+
   it('normalizes an anonymous payload (no wallet, no identities)', () => {
     const payload = { anonymous: true };
     const me = normalizeConnection(payload);

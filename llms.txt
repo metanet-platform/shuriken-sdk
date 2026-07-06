@@ -11,10 +11,10 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 - [manifest.json](./manifest.json): machine-readable source of truth — every method schema, error code, consent + streaming flags.
 
 ## Methods (wire type → sugar)
-- connection → `ninja.connect({ request?, proofs?, salt?, navbg? })` → version-discriminated identity
+- connection → `ninja.connect({ request?, proofs?, salt?, navbg? })` → version-discriminated identity. Purposes: `request` takes `bsv|icp|kda|content`; `proofs` adds `app`. Core set today — future platform versions may add more (incl. custom namespaces); unknown purposes are forwarded untouched. RE-CALLABLE = the canonical ask-later pattern: approved items resolve silently, a new item re-prompts the full list (approvals persist, denials are per-visit)
 - pay → `ninja.pay.bsv(recipients, {broadcast?})` | `ninja.pay.icp({token,to,amount})` | `ninja.pay.kda({to,amount})` — bsv broadcast defaults true (finalizes on-chain → txid); `{broadcast:false}` returns authorized-only rawTxHex, finalize via `broadcastRawTx(rawTxHex, me.genericUseSeed)`
 - create-post → `ninja.feed.createPost({ headline, previewAsset?, appEmbed? })` → `{ postId }`
-- generate-proof → `ninja.proof.generate({ reason?, purpose? })` → Groth16 proof
+- generate-proof → `ninja.proof.generate({ reason? })` → Groth16 APP-identity proof (app-only shortcut, no purpose param; other purposes via `ninja.connect({ proofs })`)
 - full-transaction → `ninja.tx.get(txid)` → `{ txid, rawHex, bumpHex }`
 - token-history → `ninja.tx.history({ chain?, limit?, offset? })`
 - geolocation (stream) → `ninja.geo.current()` | `ninja.geo.watch()` (fix = {latitude,longitude,accuracy?,isFinal?}); stop via break
@@ -25,6 +25,7 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 
 ## Rules
 - Identity: branch on `me.anonymous`, then `me.version` (0 | 1). Only `canonicalId` exists on both. No `wallet || identities` fallback.
+- V1 purposes: `app` (session signer, pub only) + `bsv`/`icp`/`kda` (chain id-field: address/principal/account) + `content` (pure key purpose — pub only, no chain field). Unknown/future purposes pass through verbatim on `me` and via `me.raw`.
 - Errors: catch `NinjaError`, branch on `err.code` (closed union), localize with `t(err.code)`. `ERR_ABORTED` = user cancel.
 - ICP/KDA payments are single-recipient. App ZK proofs require V1.
 - `connect()` (init/transport) then `ninja.connect()` (identity) — different calls.

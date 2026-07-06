@@ -36,9 +36,12 @@ import { normalizeConnection, sessionPubOf, sessionVersionOf } from '../protocol
 export function toConnectionWireParams(params: ConnectParams): Record<string, unknown> {
   const wire: Record<string, unknown> = {};
 
-  // Presence of a chain key under `identities` = "share this identity". A proof
-  // request for that same chain sets its `proof` flag (harmless if the chain
-  // wasn't in `request`: the parent treats proof-bearing entries as requested).
+  // Presence of a purpose key under `identities` = "share this identity". A
+  // proof request for that same purpose sets its `proof` flag (harmless if the
+  // purpose wasn't in `request`: the parent treats proof-bearing entries as
+  // requested). The loop is purpose-agnostic on purpose: any core purpose
+  // (bsv/icp/kda/content) — and any future/custom namespace — is forwarded
+  // untouched; only 'app' is special-cased (it rides on appIdentity below).
   const identities: Record<string, { proof?: boolean }> = {};
   for (const chain of params.request ?? []) {
     identities[chain] = identities[chain] ?? {};

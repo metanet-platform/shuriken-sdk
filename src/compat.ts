@@ -58,6 +58,7 @@ import type {
   ChainKind,
   ConnectOptions,
   ConnectParams,
+  LedgerChainKind,
   ProofPurpose,
 } from './types';
 
@@ -127,8 +128,8 @@ export interface LegacyConnectOptions {
   identities?: Partial<Record<ChainKind, { proof?: boolean }>>;
   /** V1: `{ proof?: boolean }` — the app identity itself always arrives. */
   appIdentity?: { proof?: boolean };
-  /** V1: wallet-level info to request per chain. */
-  wallets?: ChainKind[];
+  /** V1: wallet-level info to request per chain (ledgers only — `content` has no wallet). */
+  wallets?: LedgerChainKind[];
 }
 
 /**
@@ -540,15 +541,17 @@ export class MetanetSDKCompat {
     const ninja = await this.#ensure();
 
     // ---- Translate the legacy declaration block onto ConnectParams. ----
+    // Data-driven over the caller's own keys (never a hardcoded purpose list),
+    // so every core purpose (bsv/icp/kda/content) — and any future namespace a
+    // caller declares — is forwarded untouched. Only 'app' stays special-cased
+    // below (its proof rides on appIdentity).
     const params: ConnectParams = {};
     const request: ChainKind[] = [];
     const proofs: ProofPurpose[] = [];
-    const chains: ChainKind[] = ['bsv', 'icp', 'kda'];
     if (options.identities) {
-      for (const chain of chains) {
-        const entry = options.identities[chain];
+      for (const [chain, entry] of Object.entries(options.identities)) {
         if (entry !== undefined) {
-          request.push(chain); // presence of the key = "share this identity"
+          request.push(chain as ChainKind); // presence of the key = "share this identity"
           if (entry && entry.proof) proofs.push(chain); // truthy proof flag = "mint its proof"
         }
       }

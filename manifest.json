@@ -25,14 +25,14 @@
       "requiresWallet": false,
       "consent": "connection-overlay",
       "streaming": false,
-      "description": "Connect the app to the user's identity. Returns a version-discriminated identity (V0 wallet | V1 purpose-scoped identities | anonymous). Optionally shares chain identities and mints ZK proofs in the same round trip.",
+      "description": "Connect the app to the user's identity. Returns a version-discriminated identity (V0 wallet | V1 purpose-scoped identities | anonymous). Optionally shares purpose identities and mints ZK proofs in the same round trip. RE-CALLABLE — the canonical way to request identities/proofs later, incrementally: already-approved items resolve silently (no overlay), any NEW item re-prompts the user with the full list. Approvals persist across visits; denials are per-visit.",
       "sugar": "ninja.connect(params)",
-      "example": "const me = await ninja.connect({ request: ['bsv'], proofs: ['app'] })",
+      "example": "const me = await ninja.connect({ request: ['bsv', 'content'], proofs: ['app'] })",
       "request": {
         "type": "object",
         "properties": {
-          "request": { "type": "array", "items": { "enum": ["bsv", "icp", "kda"] }, "description": "identities to share (V1)" },
-          "proofs": { "type": "array", "items": { "enum": ["app", "bsv", "icp", "kda"] }, "description": "purposes to mint Groth16 proofs for" },
+          "request": { "type": "array", "items": { "enum": ["bsv", "icp", "kda", "content"] }, "description": "identities to share (V1). Core set today — future platform versions may add more purposes, including custom namespaces; the SDK forwards unknown purposes untouched." },
+          "proofs": { "type": "array", "items": { "enum": ["app", "bsv", "icp", "kda", "content"] }, "description": "purposes to mint Groth16 proofs for. Core set today — unknown/custom purposes are forwarded untouched." },
           "salt": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$", "description": "optional per-app re-keying salt" },
           "navbg": { "type": "string", "x-ninja-sanitize": "css-color" }
         }
@@ -41,7 +41,7 @@
         "oneOf": [
           { "title": "anonymous", "properties": { "anonymous": { "const": true } } },
           { "title": "V0", "required": ["version", "wallet"], "properties": { "version": { "const": 0 }, "canonicalId": { "type": "string" }, "wallet": { "type": "object", "properties": { "address": {}, "publicKeyHex": {}, "rootPrincipal": {}, "bsvPubKey": {}, "canonicalId": {} } } } },
-          { "title": "V1", "required": ["version", "identities"], "properties": { "version": { "const": 1 }, "canonicalId": { "type": "string" }, "identities": { "required": ["app"], "properties": { "app": { "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "bsv": { "properties": { "pub": {}, "address": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "icp": { "properties": { "pub": {}, "principal": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "kda": { "properties": { "pub": {}, "account": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } } } } } }
+          { "title": "V1", "required": ["version", "identities"], "properties": { "version": { "const": 1 }, "canonicalId": { "type": "string" }, "identities": { "required": ["app"], "properties": { "app": { "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "bsv": { "properties": { "pub": {}, "address": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "icp": { "properties": { "pub": {}, "principal": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "kda": { "properties": { "pub": {}, "account": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "content": { "description": "pure key purpose — pub + optional proof, NO chain address field", "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } } }, "additionalProperties": { "type": "object", "description": "future/custom purposes are passed through verbatim under their own key" } } } }
         ]
       },
       "errors": ["invalid_salt", "connection_failed", "ERR_ABORTED"]
@@ -103,10 +103,10 @@
       "requiresWallet": true,
       "consent": "proof-overlay",
       "streaming": false,
-      "description": "Mint a Groth16 zero-knowledge identity proof binding the session to the user's canonicalId. Prefer requesting proofs in connect() to batch consent. App proofs require a V1 identity.",
+      "description": "Mint the APP-identity Groth16 zero-knowledge proof binding the session to the user's canonicalId (app-proof-only shortcut; there is no purpose param — the parent only ever mints the app proof here). Proofs for other purposes are requested via connect({ request, proofs }), which is re-callable: approved items resolve silently, new items re-prompt the full list (approvals persist, denials are per-visit). App proofs require a V1 identity.",
       "sugar": "ninja.proof.generate(params)",
       "example": "const proof = await ninja.proof.generate({ reason: 'gate premium' })",
-      "request": { "type": "object", "properties": { "reason": { "type": "string" }, "purpose": { "enum": ["app", "bsv", "icp", "kda"] } } },
+      "request": { "type": "object", "properties": { "reason": { "type": "string" } } },
       "response": { "properties": { "canonicalId": {}, "pub": {}, "proof": { "$ref": "#/$defs/groth16" }, "seedCommitment": {}, "appId": {}, "appUrl": {} } },
       "errors": ["user_denied", "app_proof_requires_v1", "ERR_ABORTED", "ERR_UNKNOWN"]
     },
@@ -200,6 +200,6 @@
   },
   "$defs": {
     "groth16": { "type": "object", "properties": { "pi_a": { "type": "array" }, "pi_b": { "type": "array" }, "pi_c": { "type": "array" } } },
-    "proofEnvelope": { "type": "object", "properties": { "scheme": { "const": "metanet-zk-identity-v1" }, "purpose": { "enum": ["app", "bsv", "icp", "kda"] }, "seedCommitment": { "type": "string" }, "proof": { "$ref": "#/$defs/groth16" }, "assetId": { "type": "string" } } }
+    "proofEnvelope": { "type": "object", "properties": { "scheme": { "const": "metanet-zk-identity-v1" }, "purpose": { "type": "string", "description": "core purposes today: app | bsv | icp | kda | content; future platform versions may add more, including custom namespaces" }, "seedCommitment": { "type": "string" }, "proof": { "$ref": "#/$defs/groth16" }, "assetId": { "type": "string" } } }
   }
 }

@@ -128,7 +128,7 @@ method has no sugar yet or you want the raw form.
 | `pay` (ICP) | `send('pay', { token, recipients:[one] })` | `ninja.pay.icp({ token, to, amount })` | `ninja.call('pay', { … })` |
 | `pay` (KDA) | `send('pay', { token, recipients:[one] })` | `ninja.pay.kda({ to, amount, chainId })` | `ninja.call('pay', { … })` |
 | `create-post` | `send('create-post', { headline })` | `ninja.feed.createPost({ headline, previewAsset })` | `ninja.call('create-post', { … })` |
-| `generate-proof` | `send('generate-proof', { reason })` | `ninja.proof.generate({ reason, purpose })` | `ninja.call('generate-proof', { … })` |
+| `generate-proof` | `send('generate-proof', { reason })` | `ninja.proof.generate({ reason })` — app-proof shortcut; other purposes via `ninja.connect({ proofs })` | `ninja.call('generate-proof', { … })` |
 | `full-transaction` | `send('full-transaction', { txid })` | `ninja.tx.get(txid)` | `ninja.call('full-transaction', { txid })` |
 | `token-history` | `send('token-history', { chain })` | `ninja.tx.history({ chain, limit, offset })` | `ninja.call('token-history', { … })` |
 | `open-link` | `send('open-link', { url })` | `ninja.openLink(url)` | `ninja.call('open-link', { url })` |
