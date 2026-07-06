@@ -54,7 +54,7 @@ Streaming capabilities (geolocation, QR) use a third shape — a **subscription*
 
 ```ts
 for await (const fix of ninja.geo.watch()) { /* ... */ }     // async iterable
-const scan = ninja.qr.scan(({ rawValue }) => {});  scan.stop();   // callback + handle
+const scan = ninja.qr.scan(({ rawValue }) => {});  // fires once, then auto-closes; scan.stop() cancels early
 ```
 
 ---
@@ -118,10 +118,11 @@ import { broadcastRawTx } from 'shuriken-sdk';
 await broadcastRawTx(auth.rawTxHex, me.genericUseSeed);   // finalize
 
 // ICP — single recipient, named ledger (see ninja.tokens)
-const { transferOutcome } = await ninja.pay.icp({ token: 'ckUSDC', to: 'principal-...', amount: 1_000_000n });
+const { transferOutcome } = await ninja.pay.icp({ token: 'ckUSDC', to: 'principal-...', amount: 1.5 });
+// ↑ amount is WHOLE token units (a decimal), e.g. 1.5 ckUSDC — not base units/e8s.
 
-// KDA — single recipient
-const { requestKey } = await ninja.pay.kda({ to: 'k:abc...', amount: 1.5, chainId: '2' });
+// KDA — single recipient. Only chain '2' is supported for now (others throw ERR_NOT_SUPPORTED).
+const { requestKey } = await ninja.pay.kda({ to: 'k:abc...', amount: 1.5 });
 ```
 
 ## Feed, proofs, transactions

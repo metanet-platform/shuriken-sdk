@@ -98,6 +98,8 @@ export type OkCode = 'OK_SUCCESS';
 export type NinjaErrorCode =
   // ---- platform handler codes (from metanet_frontend handlers) ----
   | 'ERR_ABORTED'              // user cancelled a consent overlay
+  | 'ERR_REJECTED'             // legacy user-cancel code (create-post overlay); treat like ERR_ABORTED
+  | 'ERR_POST_FAIL'            // create-post: the post failed to publish
   | 'ERR_MISSING_PARAMS'
   | 'ERR_NOT_SUPPORTED'
   | 'ERR_UNSUPPORTED_TOKEN'    // pay: unknown token/ledger
@@ -242,8 +244,18 @@ export interface BsvRecipient {
   address?: string;
   /** amount in satoshis */
   sats?: number;
-  /** amount in USD; converted via the platform FX rate */
+  /** amount in USD — a shortcut for `fiatValue` with `currency: 'USD'`. */
   usd?: number;
+  /**
+   * amount in fiat; pair with `currency` (defaults to USD). The platform converts
+   * it to satoshis via its FX rate — the SDK just forwards it (no conversion).
+   */
+  fiatValue?: number;
+  /**
+   * Fiat currency for `fiatValue`/`usd` (e.g. 'USD','EUR','GBP','JPY',…). Defaults
+   * to 'USD'. Must be a platform-supported currency; the platform does the FX.
+   */
+  currency?: string;
   note?: string;
   /** fee-only recipient */
   fee?: 'APP_GENERIC' | 'AI_IMG' | (string & {});
@@ -278,7 +290,12 @@ export interface BsvPayResult {
 export interface IcpPayParams {
   token: string;      // named ledger alias, e.g. 'ckUSDC' (see tokens.ts) or a raw ledger id
   to: string;         // principal
-  amount: number | bigint;
+  /**
+   * Amount in WHOLE token units (a decimal), e.g. `1.5` ckUSDC — NOT base units
+   * (no e8s/bigint). The platform's overlay formats it using the ledger's
+   * decimals and converts to base units for the transfer; the SDK forwards as-is.
+   */
+  amount: number;
   memo?: string;
 }
 export interface IcpPayResult { transferOutcome: bigint }
@@ -287,7 +304,12 @@ export interface IcpPayResult { transferOutcome: bigint }
 export interface KdaPayParams {
   to: string;
   amount: number;
-  chainId?: string;   // default '2'
+  /**
+   * Kadena chain id. Currently ONLY `'2'` is supported for sending from balance
+   * (the platform's funding chain); passing anything else throws
+   * `ERR_NOT_SUPPORTED`. Defaults to `'2'`. More chains may be supported later.
+   */
+  chainId?: '2';
 }
 export interface KdaPayResult { requestKey: string; chainId: string }
 

@@ -17,8 +17,8 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 - generate-proof → `ninja.proof.generate({ reason?, purpose? })` → Groth16 proof
 - full-transaction → `ninja.tx.get(txid)` → `{ txid, rawHex, bumpHex }`
 - token-history → `ninja.tx.history({ chain?, limit?, offset? })`
-- geolocation (stream) → `ninja.geo.current()` | `ninja.geo.watch()`; stop via break
-- qr-scan (stream) → `ninja.qr.scan(onResult)`; `.stop()`
+- geolocation (stream) → `ninja.geo.current()` | `ninja.geo.watch()` (fix = {latitude,longitude,accuracy?,isFinal?}); stop via break
+- qr-scan → `ninja.qr.scan(onResult)` — fires once then auto-closes the camera; `.stop()` cancels early
 - open-link → `ninja.openLink(url)`
 - write-clipboard → `ninja.clipboard.write(text)` (no response)
 - uniform core for any method → `ninja.call(method, params, { timeoutMs?, signal? })`

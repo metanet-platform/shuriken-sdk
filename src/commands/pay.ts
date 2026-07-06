@@ -84,6 +84,10 @@ export function makePay(
     async bsv(recipients: BsvRecipient[], opts: BsvPayOptions = {}): Promise<BsvPayResult> {
       const broadcast = opts.broadcast ?? true;
 
+      // Map the ergonomic public shape (sats/usd/fee) to the parent's exact wire
+      // fields (value/fiatValue/reason) — see toBsvWireRecipients for why.
+      const wireRecipients = toBsvWireRecipients(recipients);
+
       // Fail BEFORE the consent overlay when a broadcast was requested but no
       // session key exists (connect() not called, or the parent sent no seed) —
       // don't make the user approve a payment we already know we can't finalize.
@@ -100,7 +104,7 @@ export function makePay(
       // Step 1 — authorize: the parent shows the consent overlay, signs the tx,
       // and returns the raw hex. The chain is inferred parent-side from the
       // absence of a `token` field; FX (`usd`) and fee-only outputs are parent-handled.
-      const payload = await codec.call<BsvPayResult>('pay', { recipients });
+      const payload = await codec.call<BsvPayResult>('pay', { recipients: wireRecipients });
 
       if (!broadcast) {
         return { ...payload, broadcast: false };
@@ -144,8 +148,10 @@ export function makePay(
      *       the parent routes to its ICP path. `resolveLedger(params.token)` turns
      *       an alias into a canister id (passthrough if already an id), so an
      *       unknown token surfaces as `ERR_UNSUPPORTED_TOKEN` from the parent
-     *       rather than a silent mis-send. `amount` is kept as-authored (number
-     *       or bigint) — the parent normalizes to the ledger's minor units.
+     *       rather than a silent mis-send. `amount` is a decimal in WHOLE token
+     *       units (e.g. 1.5 ckUSDC) — NOT base units/e8s. The overlay formats it
+     *       via the ledger's decimals and the modal converts to base units; the
+     *       SDK forwards it verbatim (no conversion, no bigint).
      */
     icp(params: IcpPayParams): Promise<IcpPayResult> {
       const ledger = resolveLedger(params.token);
@@ -176,17 +182,70 @@ export function makePay(
      */
     kda(params: KdaPayParams): Promise<KdaPayResult> {
       const chainId = params.chainId ?? '2';
+      // Only chain '2' is supported for sending from balance right now (the
+      // platform's funding chain). Reject anything else locally with a precise,
+      // typed error rather than a confusing parent-side failure. More chains may
+      // be supported in a later release.
+      if (chainId !== '2') {
+        throw new NinjaError('ERR_NOT_SUPPORTED', {
+          method: 'pay',
+          hint: 'KDA sending currently supports chainId "2" only.',
+        });
+      }
       // Shape EXACTLY as paymentHandler.js reads it: the KDA form is gated on
       // `token.protocol === 'KDA'` (line 148); the chain id is read from
-      // `token.specification.chainId` (line 181, default '2'), NOT off the
-      // recipient; and each recipient must carry `address` + `value` (line 164),
-      // with the note under `note` (line 180 reads `note || reason`).
+      // `token.specification.chainId` (line 181), NOT off the recipient; and each
+      // recipient must carry `address` + `value` (line 164), with the note under
+      // `note` (line 180 reads `note || reason`).
       return codec.call<KdaPayResult>('pay', {
-        token: { protocol: 'KDA', specification: { chainId } },
+        token: { protocol: 'KDA', specification: { chainId: '2' } },
         recipients: [{ address: params.to, value: params.amount }],
       });
     },
   };
+}
+
+/**
+ * Map ergonomic `BsvRecipient`s to the parent's exact `pay` wire shape.
+ *
+ * WHAT: turns each public recipient (`{ address?, sats?, usd?, fiatValue?,
+ *       currency?, note?, fee? }`) into the fields `paymentHandler.js` reads:
+ *         sats      -> value      (amount in satoshis)
+ *         fiatValue -> fiatValue  (amount in fiat; `usd` is the USD shortcut)
+ *         currency  -> currency   (fiat currency; platform does the FX)
+ *         fee       -> reason     (fee-only recipient: parent resolves SERVICE_FEES)
+ *         address   -> address    (pass through)
+ *         note      -> note       (pass through)
+ *       Only fields that are present are emitted. The SDK never converts amounts —
+ *       the platform's form/handler do all sats<->fiat conversion.
+ * WHY:  the ergonomic names (`sats`/`usd`/`fee`) are the public SDK API, but the
+ *       parent's handler gates a value recipient on `r.value`/`r.fiatValue`
+ *       (paymentHandler.js line 215-217) and a fee-only recipient on `r.reason`
+ *       (line 206). Forwarding `sats`/`usd`/`fee` verbatim made `r.value` and
+ *       `r.fiatValue` both undefined, so the handler hit its `return` at line 218
+ *       and SILENTLY DROPPED the recipient — the overlay then had nothing to
+ *       pre-fill (empty `transfer_params.recipients`). The mapping must happen in
+ *       the SDK because the wire contract is the parent's, not the SDK's, so the
+ *       ergonomic shape is translated once here rather than leaking parent field
+ *       names into the public type.
+ */
+export function toBsvWireRecipients(
+  recipients: readonly BsvRecipient[],
+): Array<Record<string, unknown>> {
+  return recipients.map((r) => {
+    const wire: Record<string, unknown> = {};
+    if (r.address !== undefined) wire['address'] = r.address;
+    if (r.sats !== undefined) wire['value'] = r.sats;
+    // Fiat: an explicit `fiatValue` (+ optional `currency`) wins; `usd` is the
+    // USD shortcut. The SDK does NOT convert — the platform's form/handler do the
+    // sats<->fiat conversion using its FX rates.
+    if (r.fiatValue !== undefined) wire['fiatValue'] = r.fiatValue;
+    else if (r.usd !== undefined) wire['fiatValue'] = r.usd;
+    if (r.currency !== undefined) wire['currency'] = r.currency;
+    if (r.note !== undefined) wire['note'] = r.note;
+    if (r.fee !== undefined) wire['reason'] = r.fee;
+    return wire;
+  });
 }
 
 /**

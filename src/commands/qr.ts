@@ -26,30 +26,39 @@ import type { QrScanResult, ResponsePayload, Subscription } from '../types';
 export function makeQr(codec: Codec): { scan(onResult: (result: QrScanResult) => void): Subscription } {
   return {
     /**
-     * Open the camera QR scanner and stream decoded results.
+     * Open the camera QR scanner; deliver the first decoded code, then close.
      *
-     * WHAT: registers `onResult` for every decoded QR frame and returns a
-     *       `Subscription`; call `.stop()` to close the camera (sends `qr-scan-stop`).
-     * WHY:  we bridge the codec's base-`ResponsePayload` frame to `QrScanResult`
-     *       at this single trusted boundary — a `qr-scan-response` frame carries
-     *       `rawValue` (+ optional `parsed`) per the manifest, so the cast is safe.
-     *       Returning the raw `Subscription` (not re-wrapping) keeps `active`,
-     *       auto-stop-on-final, and abort semantics identical to the codec's.
+     * WHAT: registers `onResult` and returns a `Subscription`. On the FIRST
+     *       decoded QR code it invokes `onResult({ rawValue, parsed? })` and then
+     *       auto-stops the scanner (sends `qr-scan-stop`), matching the expected
+     *       "scan a code -> scanner closes" UX.
+     * WHY:  the parent keeps the camera open until it receives `qr-scan-stop`
+     *       (simpleHandlers.js), so without an explicit stop the camera would stay
+     *       on after a successful scan. We stop on the first hit here so every app
+     *       gets the right behavior for free. The returned `Subscription.stop()`
+     *       stays available and idempotent (call it to cancel before any scan).
+     *       We unwrap the value from `payload.scanData` (line 162: `{ rawValue,
+     *       parsed? }`), which the parent nests rather than putting at the top level.
      *
-     * @param onResult invoked once per decoded QR code with `{ rawValue, parsed? }`.
-     * @returns the live `Subscription`; `.stop()` closes the scanner.
+     * @param onResult invoked once, with the first decoded `{ rawValue, parsed? }`.
+     * @returns the live `Subscription`; `.stop()` cancels the scanner early.
      */
     scan(onResult: (result: QrScanResult) => void): Subscription {
-      return codec.stream('qr-scan', {}, (payload: ResponsePayload) => {
-        // The parent nests the decoded value under `payload.scanData`
-        // (simpleHandlers.js line 162: `{ rawValue, parsed? }`), NOT at the
-        // payload's top level. Unwrap it here — the codec has already gated the
-        // frame (only a `success: true` frame carries scanData; ERR_NO_DATA /
-        // ERR_ABORTED frames terminate the stream via onError, never reaching here),
-        // so `scanData` is present on every frame we deliver.
+      // `holder.sub` is set synchronously below (before any async frame arrives),
+      // so the frame callback can reach the Subscription to stop it after the hit.
+      const holder: { sub?: Subscription } = {};
+      let delivered = false;
+      const sub = codec.stream('qr-scan', {}, (payload: ResponsePayload) => {
+        if (delivered) return;
         const scanData = (payload as { scanData?: QrScanResult }).scanData;
-        if (scanData) onResult(scanData);
+        if (!scanData) return; // ignore any frame that carries no decoded value
+        delivered = true;
+        onResult(scanData);
+        // Auto-close the camera after the first successful decode.
+        holder.sub?.stop();
       });
+      holder.sub = sub;
+      return sub;
     },
   };
 }

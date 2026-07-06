@@ -15,6 +15,30 @@ import type { Codec } from '../protocol/codec';
 import type { GeoFix, ResponsePayload } from '../types';
 
 /**
+ * Map a raw `geolocation-response` frame to a {@link GeoFix}.
+ *
+ * WHAT: unwraps the coords from `payload.location.{latitude,longitude,accuracy}`
+ *       and lifts `isFinal` + the (stringified) `timestamp` to the flat GeoFix.
+ * WHY:  the parent nests the position under `payload.location`
+ *       (geolocationHandler.js), NOT at the payload's top level — surfacing the
+ *       raw payload as a GeoFix left `fix.latitude`/`fix.longitude` undefined
+ *       (the "?, ?" the demo rendered). One trusted boundary does the unwrap.
+ */
+function toGeoFix(payload: ResponsePayload): GeoFix {
+  const loc =
+    (payload as { location?: { latitude?: number; longitude?: number; accuracy?: number } }).location ??
+    {};
+  const fix: GeoFix = {
+    latitude: loc.latitude as number,
+    longitude: loc.longitude as number,
+    timestamp: payload.timestamp !== undefined ? Number(payload.timestamp) : 0,
+  };
+  if (loc.accuracy !== undefined) fix.accuracy = loc.accuracy;
+  if (payload.isFinal !== undefined) fix.isFinal = payload.isFinal;
+  return fix;
+}
+
+/**
  * Build the `ninja.geo` sugar object.
  *
  * WHAT: returns `{ current, watch }`.
@@ -49,11 +73,14 @@ export function makeGeo(codec: Codec): {
         // on a geolocation-response frame.
         const sub = codec.stream('geolocation', { highAccuracy }, (payload: ResponsePayload) => {
           if (settled) return;
+          // Skip heartbeat frames that carry no position yet; resolve on the first
+          // frame that actually has a `location`.
+          if ((payload as { location?: unknown }).location == null) return;
           settled = true;
           // Stop first so the geolocation-stop is dispatched before we hand
-          // control back to the caller; then resolve with the fix.
+          // control back to the caller; then resolve with the unwrapped fix.
           sub.stop();
-          resolve(payload as unknown as GeoFix);
+          resolve(toGeoFix(payload));
         });
         // NOTE: the codec owns the failure path — if the parent returns an error
         // frame or the transport is disposed, the codec rejects the underlying
@@ -78,7 +105,20 @@ export function makeGeo(codec: Codec): {
      *       purely to name the method and pin the `GeoFix` element type.
      */
     watch(highAccuracy = true): AsyncIterable<GeoFix> & { stop(): void } {
-      return codec.streamIterable<GeoFix>('geolocation', { highAccuracy });
+      // Stream the raw frames and map each to a flat GeoFix (unwrapping
+      // `payload.location`). Wrapping the codec's iterable preserves its
+      // stop()/auto-stop-on-break contract: breaking the `for await` returns
+      // this generator, which returns the underlying iterator (sending
+      // `geolocation-stop`); `.stop()` forwards straight through.
+      const raw = codec.streamIterable<ResponsePayload>('geolocation', { highAccuracy });
+      return {
+        stop: () => raw.stop(),
+        async *[Symbol.asyncIterator](): AsyncGenerator<GeoFix> {
+          for await (const frame of raw) {
+            yield toGeoFix(frame);
+          }
+        },
+      };
     },
   };
 }

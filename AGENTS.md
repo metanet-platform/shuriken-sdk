@@ -33,13 +33,13 @@ methods are NOT promises — use the subscription form.
 
 - **Identify the user:** `const me = await ninja.connect({ request: ['bsv'] })` then branch on `me.anonymous` / `me.version`.
 - **Take a BSV payment:** `await ninja.pay.bsv([{ address, sats }])` → `{ txid, rawTxHex, broadcast: true }`. Multi-recipient is allowed; `usd` and `fee` recipients are allowed. Broadcast defaults to **true** (the SDK finalizes on the network). Pass `{ broadcast: false }` to get the authorized-but-unbroadcast `rawTxHex` (nothing on-chain yet); finalize later with `broadcastRawTx(rawTxHex, me.genericUseSeed)`. `broadcast: true` before `connect()` throws `ERR_NO_BROADCAST_KEY`.
-- **Take an ICP/KDA payment:** `ninja.pay.icp({ token, to, amount })` / `ninja.pay.kda({ to, amount })`. **Single recipient only** — multiple throws `ERR_MULTIPLE_RECIPIENTS`.
+- **Take an ICP/KDA payment:** `ninja.pay.icp({ token, to, amount })` / `ninja.pay.kda({ to, amount })`. **Single recipient only** — multiple throws `ERR_MULTIPLE_RECIPIENTS`. ICP `amount` is a **whole-token decimal** (e.g. `1.5`), never base units/bigint. KDA supports **chain `'2'` only** for now — any other `chainId` throws `ERR_NOT_SUPPORTED`.
 - **Post to the feed:** `await ninja.feed.createPost({ headline, previewAsset })`. You cannot set the app name; the platform forces it.
 - **Prove identity (ZK):** prefer `ninja.connect({ proofs: ['app'] })` to batch consent. Standalone: `ninja.proof.generate({ reason })`. On a V0 user, app proofs throw `app_proof_requires_v1` — fall back to trusting `canonicalId` via the signed connection.
 - **Verify a peer's proof:** `ninja.identity.verifyProof(proof, canonicalId)`.
 - **Fetch a tx for SPV:** `await ninja.tx.get(txid)` → `{ rawHex, bumpHex }`.
 - **Location:** one-shot `await ninja.geo.current()`; stream `for await (const fix of ninja.geo.watch()) { if (fix.isFinal) break; }`. Breaking the loop stops the stream.
-- **QR:** `const s = ninja.qr.scan(({ rawValue, parsed }) => {}); s.stop();`.
+- **QR:** `ninja.qr.scan(({ rawValue, parsed }) => {})` — delivers the **first** decoded code then **auto-closes** the camera; keep the returned handle to `.stop()` early (before any scan).
 - **Clipboard:** `ninja.clipboard.write(text)` — returns `void`, there is no response, do not `await` a result.
 - **Port a legacy bespoke ninja SDK app in one line:** replace the local import with `import client from 'shuriken-sdk/compat'` — identical singleton surface (`connect()`, `payBSV()`, `getBSVHistory()`, `scanQRCode()`, `on/off/once`, same resolved shapes + localStorage keys) on the verified engine; then migrate call sites to the typed API per [docs/MIGRATION.md](./docs/MIGRATION.md).
 

@@ -26,6 +26,7 @@ import {
   sessionPubOf,
   sessionVersionOf,
 } from '../src/protocol/normalize';
+import { toBsvWireRecipients } from '../src/commands/pay';
 import { NinjaError, isNinjaError } from '../src/errors';
 import { WIRE_COMMAND, type ResponsePayload } from '../src/types';
 
@@ -352,5 +353,51 @@ describe('test harness: FakeWindow', () => {
     w.removeEventListener('message', handler);
     w.deliver(frame, 'https://metanet.page', w);
     expect(received).toHaveLength(1);
+  });
+});
+
+/* ================================================================== *
+ * 6. pay.bsv wire mapping (ergonomic sats/usd/fee -> parent value/fiatValue/reason).
+ * ================================================================== */
+
+describe('commands/pay · toBsvWireRecipients', () => {
+  it('maps sats -> value (satoshis) and passes address/note through', () => {
+    // The exact bug: the demo sends { address, sats, note }; the parent's
+    // handler reads r.value (not r.sats) and would otherwise drop the recipient.
+    expect(
+      toBsvWireRecipients([{ address: '1A1z', sats: 5000, note: 'shuriken demo' }]),
+    ).toEqual([{ address: '1A1z', value: 5000, note: 'shuriken demo' }]);
+  });
+
+  it('maps usd -> fiatValue for a fiat-denominated recipient', () => {
+    expect(toBsvWireRecipients([{ address: '1B', usd: 2.5 }])).toEqual([
+      { address: '1B', fiatValue: 2.5 },
+    ]);
+  });
+
+  it('maps fee -> reason for a fee-only recipient (no address)', () => {
+    expect(toBsvWireRecipients([{ fee: 'APP_GENERIC' }])).toEqual([{ reason: 'APP_GENERIC' }]);
+  });
+
+  it('emits only the fields that are present (no undefined value/fiatValue leaks)', () => {
+    const [wire] = toBsvWireRecipients([{ address: '1C', sats: 1 }]);
+    expect(wire).toEqual({ address: '1C', value: 1 });
+    expect('fiatValue' in (wire as object)).toBe(false);
+    expect('reason' in (wire as object)).toBe(false);
+    expect('note' in (wire as object)).toBe(false);
+  });
+
+  it('maps a mixed batch (value recipient + fiat recipient + fee-only) in order', () => {
+    expect(
+      toBsvWireRecipients([
+        { address: '1D', sats: 100, note: 'a' },
+        { address: '1E', usd: 1 },
+        { fee: 'AI_IMG' },
+      ]),
+    ).toEqual([
+      { address: '1D', value: 100, note: 'a' },
+      { address: '1E', fiatValue: 1 },
+      { reason: 'AI_IMG' },
+    ]);
   });
 });

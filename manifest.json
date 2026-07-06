@@ -53,9 +53,9 @@
       "requiresWallet": true,
       "consent": "payment-overlay",
       "streaming": false,
-      "description": "Ask the user to authorize a payment. Chain is inferred from the params: BSV (multi-recipient, sats/usd/fee), ICP (single recipient, named ledger), or KDA (single recipient). BSV two-phase: the wire response returns a signed-but-UNBROADCAST rawTxHex; the SDK's pay.bsv finalizes it via the Metanet broadcast API when broadcast=true (default, signed with the session genericUseSeed) or returns it authorized-only when broadcast=false.",
+      "description": "Ask the user to authorize a payment. Chain is inferred from the params: BSV (multi-recipient; sats->value, usd/fiatValue+currency, fee->reason), ICP (single recipient, named ledger; amount is a WHOLE-token decimal e.g. 1.5, NOT base units), or KDA (single recipient; chain '2' only for now). The SDK never converts amounts — the platform does sats<->fiat conversion. BSV two-phase: the wire response returns a signed-but-UNBROADCAST rawTxHex; the SDK's pay.bsv finalizes it via the Metanet broadcast API when broadcast=true (default, signed with the session genericUseSeed) or returns it authorized-only when broadcast=false.",
       "sugar": "ninja.pay.bsv(recipients, {broadcast?, source?}) | ninja.pay.icp(params) | ninja.pay.kda(params)",
-      "example": "const { txid } = await ninja.pay.bsv([{ address: '1A1z...', sats: 5000, note: 'coffee' }])",
+      "example": "const { txid } = await ninja.pay.bsv([{ address: '1A1z...', sats: 5000, note: 'coffee' }]); await ninja.pay.icp({ token: 'ckUSDC', to, amount: 1.5 }); await ninja.pay.kda({ to, amount: 1.5 })",
       "x-shuriken-sdk-broadcast": { "default": true, "api": "https://api.metanet.ninja/data/api", "auth": "x-pubkey/x-signature signed with the connection's genericUseSeed", "clientErrors": ["ERR_NO_BROADCAST_KEY", "ERR_BROADCAST_FAILED"] },
       "request": {
         "oneOf": [
@@ -94,7 +94,7 @@
         }
       },
       "response": { "properties": { "postId": { "type": "string" } } },
-      "errors": ["ERR_MISSING_PARAMS", "ERR_ABORTED", "ERR_UNKNOWN"]
+      "errors": ["ERR_MISSING_PARAMS", "ERR_ABORTED", "ERR_REJECTED", "ERR_POST_FAIL", "ERR_UNKNOWN"]
     },
     "generate-proof": {
       "wireType": "generate-proof",
