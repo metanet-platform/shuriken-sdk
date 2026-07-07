@@ -141,7 +141,11 @@ const { requestKey } = await ninja.pay.kda({ to: 'k:abc...', amount: 1.5 });
 ## Feed, proofs, transactions
 
 ```ts
-const { postId } = await ninja.feed.createPost({ headline: 'gm', previewAsset: file });
+const { postId } = await ninja.feed.createPost({
+  headline: 'gm',                     // short title
+  nftDescription: 'hello Metanet',    // the post BODY (required — becomes the receipt's main text)
+  previewAsset: file,                 // optional image File
+});
 
 // App-identity proof shortcut (app purpose ONLY — no purpose param). For other
 // purposes, re-call ninja.connect({ request, proofs }) — the canonical ask-later way.
