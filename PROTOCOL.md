@@ -48,13 +48,19 @@ The mental model is **JSON-RPC 2.0 over `postMessage`**: `detail.type` is the me
 
 ## Timeouts (defaults, per-command overridable)
 
-| Methods | Default |
-|---|---|
-| `open-link` | 10s |
-| `full-transaction`, `token-history`, `geolocation`, `connection` | 30s |
-| `pay`, `generate-proof` | 60s |
+| Methods | Default | Why |
+|---|---|---|
+| `full-transaction`, `token-history`, `geolocation`, bare `connection` | 30s | data reads / immediate answers — a slow response means a dead parent |
+| `open-link` | 2 min | consent overlay — the user decides at their own pace |
+| `pay`, `create-post`, `generate-proof`, consent-bearing `connection` (identities/proofs requested) | 10 min | user-paced overlays (forms, consent) + first-time Groth16 proving (zkey download + prove can take minutes) |
 
-`connection` additionally retries 3×1s before falling back to an anonymous result.
+**Design rule:** a deadline catches a *dead parent*, never the *user*. Commands that
+open a platform overlay stay pending while the user interacts — timing them out at
+30–60s rejected requests that then succeeded parent-side. All values are overridable
+(`connect({ timeoutMs })` globally, `opts.timeoutMs` per call, `ConnectParams.timeoutMs`
+for the identity handshake). A response arriving after a timeout is not lost: it is
+routed to `ninja.on('<method>-response')` (forward-compat rule 2), so an app can
+still observe it.
 
 ## Signature verification (version-aware, default-on)
 

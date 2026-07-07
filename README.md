@@ -102,7 +102,7 @@ me.raw;                          // fully-typed escape hatch to every original f
 
 ### Asking for more later (incremental consent)
 
-`ninja.connect()` is **re-callable** — it is the canonical way to request identities or proofs after the first handshake. Already-approved items resolve **silently** (no overlay); any **new** item re-prompts the user with the full list. Approvals persist across visits; denials are per-visit.
+`ninja.connect()` is **re-callable** — it is the canonical way to request identities or proofs after the first handshake. Already-approved items resolve **silently** (no overlay); any item not yet approved re-prompts the user with the full list. **Only approvals are ever stored** — declining is a "not now", so the same request re-prompts next time.
 
 ```ts
 await ninja.connect({ request: ['bsv'] });                       // first visit: prompts

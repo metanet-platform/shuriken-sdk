@@ -20,6 +20,15 @@ import type { Codec, Session } from '../protocol/codec';
 import { normalizeConnection, sessionPubOf, sessionVersionOf } from '../protocol/normalize';
 
 /**
+ * Deadline for a consent-bearing connect (identities/proofs requested): the
+ * user may take their time on the consent overlay, and an approved proof can
+ * trigger first-time Groth16 proving (zkey download + prove — minutes, with
+ * progress shown platform-side). 10 minutes; override per call via
+ * `ConnectParams.timeoutMs`. A bare connect keeps the protocol default (30s).
+ */
+export const CONSENT_CONNECT_TIMEOUT_MS = 600_000;
+
+/**
  * Map the ergonomic {@link ConnectParams} onto the parent's exact `connection`
  * wire shape.
  *
@@ -102,10 +111,24 @@ export function makeConnect(
     // anonymous) — normalizeConnection disambiguates it. Signature note: at this
     // point the session pub is still null (this IS the message that establishes
     // it), so signature.ts short-circuits to `true` and the origin check gates.
+    const wire = toConnectionWireParams(params);
+
+    // Deadline: a bare connect (app identity only) is answered immediately by
+    // the parent, so the protocol default (30s) applies. Anything requesting
+    // identities/proofs can legitimately take MINUTES — the request may sit
+    // behind the consent overlay waiting for the user, and an approved proof
+    // triggers first-time Groth16 proving (zkey download + prove) that the
+    // platform surfaces as per-proof progress rows while this call stays
+    // pending. Timing out at 30s mid-consent produced spurious ERR_TIMEOUTs,
+    // so consent-bearing connects get the long deadline (caller-overridable
+    // via params.timeoutMs).
+    const needsConsent = wire['identities'] !== undefined || wire['appIdentity'] !== undefined;
+    const timeoutMs = params.timeoutMs ?? (needsConsent ? CONSENT_CONNECT_TIMEOUT_MS : undefined);
+
     const { payload, envelope } = await codec.call<CallWithEnvelope<Record<string, unknown>>>(
       'connection',
-      toConnectionWireParams(params),
-      { withEnvelope: true },
+      wire,
+      { withEnvelope: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
     );
 
     // Map the raw payload onto the ConnectResult union (+ `.raw` escape hatch).

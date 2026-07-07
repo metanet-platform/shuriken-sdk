@@ -61,19 +61,27 @@ import manifest from '../manifest.json';
 
 /**
  * Per-command deadlines in milliseconds (PROTOCOL.md "Timeouts").
- * WHY these numbers: interactive, consent-gated flows (`pay`, `generate-proof`)
- * need a full minute of human time; data reads and streaming setup get 30s; a
- * fire-and-forget `open-link` only 10s. `default` catches any future method.
+ *
+ * DESIGN RULE: a deadline exists to catch a DEAD/unresponsive parent — never to
+ * race the USER. Consent-gated, user-paced flows (`pay`, `create-post`,
+ * `generate-proof`, consent-bearing `connection`, `open-link`) keep the request
+ * pending while the user reads/fills a platform overlay (and first-time Groth16
+ * proving can take minutes on top), so they get a LONG deadline (10 min / 2 min)
+ * instead of 30–60s — a 30s timer fired mid-form, rejecting requests that then
+ * SUCCEEDED parent-side. Pure data reads stay snappy (30s). `default` catches
+ * any future method. Every value is overridable via connect({ timeoutMs }) or
+ * per-call opts.
  */
 const DEFAULT_TIMEOUTS: Record<string, number> = {
   default: 30_000,
-  'open-link': 10_000,
-  'full-transaction': 30_000,
-  'token-history': 30_000,
-  geolocation: 30_000,
-  connection: 30_000,
-  pay: 60_000,
-  'generate-proof': 60_000,
+  'open-link': 120_000,       // consent overlay — user decides at their own pace
+  'full-transaction': 30_000, // data read
+  'token-history': 30_000,    // data read
+  geolocation: 30_000,        // streams don't arm call timers; kept for parity
+  connection: 30_000,         // bare connect; consent-bearing connects escalate to 10 min (connect.ts)
+  pay: 600_000,               // user fills/confirms the payment form
+  'create-post': 600_000,     // user completes the whole post form
+  'generate-proof': 600_000,  // consent + first-time proving (zkey download + Groth16)
 };
 
 /**

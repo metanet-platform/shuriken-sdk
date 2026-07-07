@@ -287,6 +287,14 @@ export interface ConnectParams {
    * wallet endpoints — `content` is a pure key purpose, so it has none.
    */
   wallets?: LedgerChainKind[];
+  /**
+   * Deadline override for THIS connect round trip (ms). Defaults: 30s for a
+   * bare connect (answered immediately, no consent), 10 MINUTES when the call
+   * requests identities/proofs — those may sit behind the consent overlay and
+   * first-time Groth16 proving (zkey download + prove) which can take minutes;
+   * the platform shows per-proof progress rows while the request stays pending.
+   */
+  timeoutMs?: number;
 }
 
 /** pay — BSV */
