@@ -15,9 +15,11 @@
  *       reply would spuriously reject with ERR_SIGNATURE. Ordering is load-bearing.
  */
 
-import type { CallWithEnvelope, ConnectParams, ConnectResult } from '../types';
+import type { CallWithEnvelope, ConnectParams, ConnectResult, ProofEnvelope } from '../types';
 import type { Codec, Session } from '../protocol/codec';
 import { normalizeConnection, sessionPubOf, sessionVersionOf } from '../protocol/normalize';
+import { NinjaError } from '../errors';
+import { verifyProofOrThrow } from './identity';
 
 /**
  * Deadline for a consent-bearing connect (identities/proofs requested): the
@@ -79,6 +81,71 @@ export function toConnectionWireParams(params: ConnectParams): Record<string, un
   if (params.navbg !== undefined) wire['navbg'] = params.navbg;
 
   return wire;
+}
+
+/**
+ * Verify EVERY ZK proof envelope a normalized V1 connection result carries,
+ * against the result's own canonicalId — out-of-the-box, before the connect
+ * resolves.
+ *
+ * WHAT: walks the canonical `me.proofs` map AND any per-identity `.proof`
+ *       envelope the normalizer didn't merge into it (the map wins on
+ *       duplicates, but a nested envelope that DIFFERS from the map entry is
+ *       verified too — an attacker must not be able to hide a forged copy in
+ *       the less-read slot). Each envelope is verified with the purpose
+ *       entry's own `pub` (`me.app.pub` for `app`, `me.<purpose>.pub`
+ *       otherwise) via {@link verifyProofOrThrow}.
+ * WHY reject-on-failure: the connection payload's SIGNATURE already passed,
+ *       so a proof that fails local verification means the source is tampered
+ *       or lying about identity binding — resolving the connect anyway would
+ *       hand the app a "verified" identity that isn't. V0 and anonymous
+ *       results carry no ZK proofs, so they pass through untouched.
+ *
+ * @throws NinjaError('ERR_PROOF_INVALID') naming the purpose + reason; or
+ *         ERR_VKEY_INTEGRITY if the SDK's embedded vkey pin fails (corrupted
+ *         bundle — fail closed).
+ */
+export function verifyConnectionProofs(result: ConnectResult): void {
+  if (result.anonymous || result.version !== 1) return;
+
+  // Collect every distinct envelope with its purpose. `me.proofs` is the
+  // canonical merged map; nested `.proof` objects are re-checked only when
+  // they are not the exact object already collected (Set identity is enough:
+  // the normalizer copies references, never clones).
+  const jobs: Array<{ purpose: string; envelope: ProofEnvelope }> = [];
+  const seen = new Set<ProofEnvelope>();
+  for (const [purpose, envelope] of Object.entries(result.proofs)) {
+    if (!envelope) continue;
+    jobs.push({ purpose, envelope });
+    seen.add(envelope);
+  }
+  for (const [purpose, value] of Object.entries(result)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const nested = (value as { proof?: unknown }).proof as ProofEnvelope | undefined;
+    if (!nested || typeof nested !== 'object') continue;
+    if (nested.scheme !== 'metanet-zk-identity-v1') continue;
+    if (seen.has(nested)) continue;
+    jobs.push({ purpose, envelope: nested });
+    seen.add(nested);
+  }
+
+  for (const { purpose, envelope } of jobs) {
+    // The pub travels on the identity entry BEARING the proof — the envelope
+    // itself never carries it (see commands/identity.ts). A proof for a
+    // purpose whose entry shared no pub is unverifiable ⇒ invalid.
+    const entry = (result as Record<string, unknown>)[purpose];
+    const pub =
+      typeof entry === 'object' && entry !== null && typeof (entry as { pub?: unknown }).pub === 'string'
+        ? ((entry as { pub: string }).pub)
+        : '';
+    if (!pub) {
+      throw new NinjaError('ERR_PROOF_INVALID', {
+        method: 'connection',
+        hint: `${purpose}: proof present but no public key was shared for this purpose — cannot verify`,
+      });
+    }
+    verifyProofOrThrow(envelope, result.canonicalId, pub);
+  }
 }
 
 /**
@@ -144,6 +211,17 @@ export function makeConnect(
     if (genericUseSeed !== undefined) result.genericUseSeed = genericUseSeed;
     if (envelope['icIdentityPackage'] !== undefined) {
       result.icIdentityPackage = envelope['icIdentityPackage'];
+    }
+
+    // OUT-OF-THE-BOX proof verification (default ON): every ZK proof envelope
+    // the response carries is verified against `me.canonicalId` BEFORE the
+    // session is seeded or the result returned. A failure REJECTS the connect
+    // with ERR_PROOF_INVALID — the payload signature already passed, so a bad
+    // proof means a tampered/lying source, and seeding a session from it would
+    // bless every later response from that source. `verifyProofs: false` is
+    // the documented opt-out for callers that re-verify server-side.
+    if (params.verifyProofs !== false) {
+      verifyConnectionProofs(result);
     }
 
     // Seed the session BEFORE returning. sessionPubOf picks the correct key per

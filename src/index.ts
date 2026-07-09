@@ -216,7 +216,11 @@ export interface Ninja {
   /** Ask the parent to open an external link. */
   openLink: ReturnType<typeof makeUtil>['openLink'];
 
-  /** Client-side proof verification: `identity.verifyProof(env, canonicalId)`. */
+  /**
+   * Client-side ZK proof verification (real Groth16 pairing check against the
+   * embedded SHA-pinned vkeys): `identity.verifyProof(env, canonicalId, pub)`
+   * → boolean, `identity.verifyProofOrThrow(...)` → throws ERR_PROOF_INVALID.
+   */
   identity: ReturnType<typeof makeIdentity>;
 
   /**
@@ -462,6 +466,20 @@ export {
   DEFAULT_BROADCAST_URL,
 } from './broadcast';
 export type { BroadcastOptions, BroadcastTxResult } from './broadcast';
+
+/**
+ * ZK proof verification — the same functions behind `ninja.identity`, exported
+ * top-level so a SERVER (or any Node process holding a received ProofEnvelope)
+ * can verify proofs without constructing an iframe client:
+ *   `verifyIdentityProof(envelope, canonicalId, pub)` → boolean
+ *   `verifyProofOrThrow(envelope, canonicalId, pub)`  → void | ERR_PROOF_INVALID
+ * Verification is fully offline: the Groth16 verification keys are EMBEDDED in
+ * the bundle and SHA-256-pinned (`VKEY_SHA256`); a corrupted bundle throws
+ * ERR_VKEY_INTEGRITY instead of verifying anything (fail closed).
+ */
+export { verifyIdentityProof, verifyProofOrThrow } from './commands/identity';
+export { VKEY_SHA256, getVerifiedVkey } from './zk/vkeys';
+export type { Groth16Vkey, VkeyCurve } from './zk/vkeys';
 
 // Re-export the response payload type by name too — a very common catch-site need
 // (`(e.payload as ResponsePayload)`), and cheap to surface explicitly.

@@ -17,6 +17,18 @@
     "correlation": "payload.ref === detail.ref",
     "signature": "verify hex over sha256(JSON.stringify(payload)) against the session pub (V0 wallet.publicKeyHex / V1 identities.app.pub) before resolving"
   },
+  "x-shuriken-zk": {
+    "description": "ZK proofs are verified CLIENT-SIDE by the SDK, out of the box: every proofEnvelope received on connection / generate-proof is re-verified locally (the leafHash public signal is recomputed from canonicalId + purpose + pub, then the Groth16 pairing check runs on BN254 via the inlined @noble/curves — no snarkjs). A failed proof rejects the call with ERR_PROOF_INVALID. Manual/server-side: verifyIdentityProof(envelope, canonicalId, pub). Opt-outs (client-side only, never sent on the wire): ConnectParams.verifyProofs, GenerateProofParams.verifyProof (both default true).",
+    "scheme": "metanet-zk-identity-v1",
+    "vkeys": {
+      "note": "Groth16 verification keys are EMBEDDED in the SDK bundle and SHA-256-pinned to the digests the platform + vault enforce; a pin mismatch throws ERR_VKEY_INTEGRITY and nothing verifies (fail closed).",
+      "sha256": {
+        "Secp256k1": "698fe8a75ecebe1f35fc71901ff845255be17aa04bd7308691428a7495ab1916",
+        "Ed25519": "1789e6c3d6f3a6900140c8600410a30d14b49db321137397ea75580c358648bd"
+      }
+    },
+    "clientErrors": ["ERR_PROOF_INVALID", "ERR_VKEY_INTEGRITY"]
+  },
   "commands": {
     "connection": {
       "wireType": "connection",
@@ -44,7 +56,7 @@
           { "title": "V1", "required": ["version", "identities"], "properties": { "version": { "const": 1 }, "canonicalId": { "type": "string" }, "identities": { "required": ["app"], "properties": { "app": { "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "bsv": { "properties": { "pub": {}, "address": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "icp": { "properties": { "pub": {}, "principal": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "kda": { "properties": { "pub": {}, "account": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } }, "content": { "description": "pure key purpose — pub + optional proof, NO chain address field", "properties": { "pub": {}, "proof": { "$ref": "#/$defs/proofEnvelope" } } } }, "additionalProperties": { "type": "object", "description": "future/custom purposes are passed through verbatim under their own key" } } } }
         ]
       },
-      "errors": ["invalid_salt", "connection_failed", "ERR_ABORTED"]
+      "errors": ["invalid_salt", "connection_failed", "ERR_ABORTED", "ERR_PROOF_INVALID", "ERR_VKEY_INTEGRITY"]
     },
     "pay": {
       "wireType": "pay",
@@ -108,7 +120,7 @@
       "example": "const proof = await ninja.proof.generate({ reason: 'gate premium' })",
       "request": { "type": "object", "properties": { "reason": { "type": "string" } } },
       "response": { "properties": { "canonicalId": {}, "pub": {}, "proof": { "$ref": "#/$defs/groth16" }, "seedCommitment": {}, "appId": {}, "appUrl": {} } },
-      "errors": ["user_denied", "app_proof_requires_v1", "ERR_ABORTED", "ERR_UNKNOWN"]
+      "errors": ["user_denied", "app_proof_requires_v1", "ERR_ABORTED", "ERR_UNKNOWN", "ERR_PROOF_INVALID", "ERR_VKEY_INTEGRITY"]
     },
     "full-transaction": {
       "wireType": "full-transaction",

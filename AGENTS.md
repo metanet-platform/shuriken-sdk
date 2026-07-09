@@ -39,7 +39,7 @@ methods are NOT promises — use the subscription form.
 - **Post to the feed:** `await ninja.feed.createPost({ headline, nftDescription, previewAsset })`. `nftDescription` is the post BODY (the main text — it becomes the on-chain receipt's description) and the platform's form requires it; `headline` is the short title. You cannot set the app name; the platform forces it.
 - **Prove identity (ZK):** prefer `ninja.connect({ proofs: ['app'] })` to batch consent. Standalone shortcut: `ninja.proof.generate({ reason })` — mints the **app** proof only (no `purpose` param exists). On a V0 user, app proofs throw `app_proof_requires_v1` — fall back to trusting `canonicalId` via the signed connection.
 - **Ask for more identities/proofs later:** call `ninja.connect({ request, proofs })` again — it is re-callable and is the canonical incremental-consent pattern. Already-approved items resolve **silently** (no overlay); any item not yet approved re-prompts the user with the **full** list. Only approvals are stored — a decline is never remembered, the same request simply re-prompts next time.
-- **Verify a peer's proof:** `ninja.identity.verifyProof(proof, canonicalId)`.
+- **Verify a peer's proof:** `ninja.identity.verifyProof(envelope, canonicalId, pub)` → boolean, or `ninja.identity.verifyProofOrThrow(...)` → throws `NinjaError('ERR_PROOF_INVALID')`. This is **real crypto** — a Groth16 pairing check against verification keys embedded in the SDK and SHA-256-pinned (a corrupted bundle throws `ERR_VKEY_INTEGRITY`, fail closed). `pub` is the purpose public key that carried the proof (`me.bsv.pub`, `bundle.pub`, …) — the envelope itself never contains it. Also exported top-level (`import { verifyIdentityProof, verifyProofOrThrow } from 'shuriken-sdk'`) for server-side use. NOTE: `connect()` and `proof.generate()` already auto-verify every received proof and REJECT (`ERR_PROOF_INVALID`) on tamper — you only call this manually for envelopes from other sources (peers, storage).
 - **Fetch a tx for SPV:** `await ninja.tx.get(txid)` → `{ rawHex, bumpHex }`.
 - **Location:** one-shot `await ninja.geo.current()`; stream `for await (const fix of ninja.geo.watch()) { if (fix.isFinal) break; }`. Breaking the loop stops the stream.
 - **QR:** `ninja.qr.scan(({ rawValue, parsed }) => {})` — delivers the **first** decoded code then **auto-closes** the camera; keep the returned handle to `.stop()` early (before any scan).
@@ -51,7 +51,9 @@ methods are NOT promises — use the subscription form.
 Catch `NinjaError`; branch on `err.code` (a closed union). Common ones:
 `ERR_ABORTED` (user cancelled — usually not shown), `ERR_UNSUPPORTED_TOKEN`,
 `ERR_MULTIPLE_RECIPIENTS`, `user_denied`, `app_proof_requires_v1`, `invalid_salt`,
-`ERR_TIMEOUT` (retriable), `ERR_SIGNATURE` (never trust the payload). Localize with `t(err.code)`.
+`ERR_TIMEOUT` (retriable), `ERR_SIGNATURE` (never trust the payload),
+`ERR_PROOF_INVALID` (a received ZK proof failed local verification — tampered/lying source; not retriable),
+`ERR_VKEY_INTEGRITY` (the SDK's embedded verification key failed its SHA pin — corrupted bundle, nothing verifies; not retriable). Localize with `t(err.code)`.
 
 ## Don'ts
 

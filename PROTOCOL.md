@@ -71,6 +71,28 @@ Every response payload is verified before resolving:
 
 There is no fallback chain: the version selects exactly one key. An unverifiable payload rejects with `ERR_SIGNATURE` and never surfaces as data.
 
+## ZK proof verification (client-side, default-on)
+
+Beyond the payload signature, any Groth16 **proof envelope** a response carries
+(`{ scheme: "metanet-zk-identity-v1", purpose, seedCommitment, proof: { pi_a, pi_b, pi_c }, assetId? }`)
+is verified locally before the call resolves:
+
+- The verifier **recomputes** the circuit's single public signal (the Poseidon
+  leaf hash binding `canonicalId` → seedCommitment, purpose label, curve tag,
+  and the purpose public key) — it never trusts prover-supplied values — then
+  runs the BN254 pairing check via the inlined `@noble/curves` (no snarkjs).
+- The two Groth16 verification keys (secp256k1 / Ed25519 curve variants) are
+  **embedded in the bundle and SHA-256-pinned** to the digests the platform +
+  vault enforce. Pin mismatch ⇒ `ERR_VKEY_INTEGRITY` and nothing verifies
+  (fail closed).
+- `connection` responses: every envelope in `proofs` / per-identity `.proof`
+  is verified against `canonicalId` with that purpose entry's `pub`; a failure
+  **rejects the connect** with `ERR_PROOF_INVALID` (the payload signature
+  already passed, so a bad proof means a tampered or lying source).
+  `generate-proof` bundles are verified the same way before resolving.
+- Opt-outs (client-side only, never on the wire): `ConnectParams.verifyProofs`,
+  `GenerateProofParams.verifyProof` — both default `true`.
+
 ## Origin / target
 
 - **Outbound** posts to `window.parent` with targetOrigin `"*"` (the app cannot know the parent's origin ahead of time; the parent enforces its own allow-list).

@@ -121,7 +121,9 @@ export type NinjaErrorCode =
   | 'ERR_ORIGIN'              // (client) response from a disallowed origin
   | 'ERR_NOT_EMBEDDED'        // (client) no parent window — app opened standalone
   | 'ERR_VALIDATION'          // (client) params failed local schema validation
-  | 'ERR_DISCONNECTED';       // (client) transport torn down while awaiting
+  | 'ERR_DISCONNECTED'        // (client) transport torn down while awaiting
+  | 'ERR_PROOF_INVALID'       // (client) a received ZK proof failed local verification — tampered/lying source
+  | 'ERR_VKEY_INTEGRITY';     // (client) embedded Groth16 vkey failed its SHA-256 pin — corrupted/tampered SDK bundle; nothing verifies
 
 /** Any responseCode, success or error. */
 export type NinjaResponseCode = OkCode | NinjaErrorCode | (string & {});
@@ -150,6 +152,15 @@ export interface Groth16Proof {
 export interface ProofEnvelope {
   scheme: 'metanet-zk-identity-v1';
   purpose: ProofPurpose;
+  /**
+   * Groth16 curve for this proof: `'ec'` (secp256k1 circuit) | `'ed'` (ed25519
+   * circuit). Self-describing — the SDK reads it to pick the right embedded
+   * verification key, so a proof (incl. a future/custom purpose) verifies
+   * without the SDK hardcoding a purpose→curve table. Optional only for
+   * backward-compat with an older parent that didn't stamp it (then the SDK
+   * falls back to its purpose→curve map).
+   */
+  algorithm?: 'ec' | 'ed';
   seedCommitment: string;
   proof: Groth16Proof;
   /** app proofs only: `<appId>:<hash160(salt)>` or `hash160(appUrl)`. */
@@ -295,6 +306,17 @@ export interface ConnectParams {
    * the platform shows per-proof progress rows while the request stays pending.
    */
   timeoutMs?: number;
+  /**
+   * Verify every ZK proof envelope the connection response carries (the
+   * `me.proofs` map + per-identity `.proof` envelopes) against
+   * `me.canonicalId` BEFORE resolving — the default (`true`). A failed proof
+   * rejects the connect with `ERR_PROOF_INVALID`: the payload signature
+   * already passed, so a bad proof means a tampered or lying source.
+   * Set `false` ONLY if you verify proofs yourself later (e.g. you forward
+   * them to your server which runs the same check) or you are debugging a
+   * platform build with known-broken proofs — never in production logic.
+   */
+  verifyProofs?: boolean;
 }
 
 /** pay — BSV */
@@ -387,7 +409,17 @@ export interface CreatePostResult { postId: string }
  * canonical, re-callable way (approved items resolve silently, new items
  * re-prompt the full list; approvals persist, denials are per-visit).
  */
-export interface GenerateProofParams { reason?: string }
+export interface GenerateProofParams {
+  reason?: string;
+  /**
+   * Verify the returned app-proof bundle locally (Groth16 pairing check
+   * against the embedded SHA-pinned vkey) before resolving — the default
+   * (`true`). A bad bundle rejects with `ERR_PROOF_INVALID`. Client-side
+   * only; never sent on the wire. Same opt-out rationale as
+   * {@link ConnectParams.verifyProofs}.
+   */
+  verifyProof?: boolean;
+}
 export interface GenerateProofResult {
   canonicalId: string;
   pub: string;

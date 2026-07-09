@@ -138,6 +138,29 @@ const { transferOutcome } = await ninja.pay.icp({ token: 'ckUSDC', to: 'principa
 const { requestKey } = await ninja.pay.kda({ to: 'k:abc...', amount: 1.5 });
 ```
 
+## Proof verification — out of the box
+
+Every ZK proof the platform hands you is **verified locally by the SDK before you ever see it** — a real Groth16 pairing check, not a schema check:
+
+- **Embedded, SHA-pinned verification keys.** The circuit's two verification keys (secp256k1 + Ed25519 variants) are embedded in the bundle and pinned by SHA-256 to the exact digests the platform and vault enforce. On first use the SDK re-hashes the embedded bytes; a mismatch throws `ERR_VKEY_INTEGRITY` and **nothing verifies** (fail closed — a tampered bundle can't bless forged proofs).
+- **Auto-verify on `connect()`.** If the connection response carries proofs (`me.proofs` and/or per-identity `.proof` envelopes), each one is verified against `me.canonicalId` before the connect resolves. A failure rejects with `ERR_PROOF_INVALID` — the payload signature already passed, so a bad proof means a tampered or lying source.
+- **Auto-verify on `proof.generate()`.** The returned app-proof bundle is verified against its own `canonicalId`/`pub` before resolving.
+- **Verify anything yourself.** The same verifier is exported for manual / server-side use:
+
+```ts
+import { verifyIdentityProof, verifyProofOrThrow } from 'shuriken-sdk';
+
+// envelope: the ProofEnvelope; canonicalId: who it must bind to;
+// pub: the purpose public key that CARRIED the proof (me.bsv.pub, bundle.pub, …)
+verifyIdentityProof(envelope, me.canonicalId, me.bsv!.pub);   // → boolean
+verifyProofOrThrow(envelope, me.canonicalId, me.bsv!.pub);    // → throws NinjaError('ERR_PROOF_INVALID')
+// in-client sugar: ninja.identity.verifyProof(...) / ninja.identity.verifyProofOrThrow(...)
+```
+
+The verifier recomputes the circuit's public signal (the Poseidon leaf hash binding `canonicalId` + purpose + public key) from scratch — it never trusts prover-supplied values — then runs the pairing check on BN254 via the already-inlined `@noble/curves`. Still **zero runtime dependencies**, no snarkjs, no wasm.
+
+**Opt-out** (rare): `ninja.connect({ verifyProofs: false })` / `ninja.proof.generate({ verifyProof: false })` skip the automatic check — only for callers that re-verify elsewhere (e.g. forwarding envelopes to a server that runs the same check). The flags are client-side and never sent on the wire.
+
 ## Feed, proofs, transactions
 
 ```ts

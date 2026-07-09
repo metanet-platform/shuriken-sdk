@@ -28,7 +28,10 @@ export default defineConfig({
   outExtension({ format }) {
     return { js: format === 'cjs' ? '.cjs' : '.js' };
   },
-  noExternal: ['@noble/curves', '@noble/hashes'],
+  // `poseidon-lite` is inlined for the same zero-runtime-deps reason as @noble:
+  // it backs the ZK proof verifier (src/zk/*) and must ship inside the bundle,
+  // never as a `dependencies` entry the consuming app has to trust.
+  noExternal: ['@noble/curves', '@noble/hashes', 'poseidon-lite'],
   external: ['react'],
   // Resolve dependencies with the BROWSER export condition. `@noble/hashes`
   // ships a conditional `./crypto` subpath: the `node` condition pulls in

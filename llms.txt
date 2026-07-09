@@ -28,6 +28,7 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 - V1 purposes: `app` (session signer, pub only) + `bsv`/`icp`/`kda` (chain id-field: address/principal/account) + `content` (pure key purpose — pub only, no chain field). Unknown/future purposes pass through verbatim on `me` and via `me.raw`.
 - Errors: catch `NinjaError`, branch on `err.code` (closed union), localize with `t(err.code)`. `ERR_ABORTED` = user cancel.
 - ICP/KDA payments are single-recipient. App ZK proofs require V1.
+- ZK proofs are verified CLIENT-SIDE out of the box (Groth16 pairing vs SHA-pinned embedded vkeys): `connect()`/`proof.generate()` auto-verify and reject tampered proofs with `ERR_PROOF_INVALID` (`ERR_VKEY_INTEGRITY` = corrupted bundle, fail closed); manual: `verifyIdentityProof(envelope, canonicalId, pub)`; opt-out flags `verifyProofs`/`verifyProof` (client-side only).
 - `connect()` (init/transport) then `ninja.connect()` (identity) — different calls.
 
 ## Optional
