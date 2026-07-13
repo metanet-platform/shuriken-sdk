@@ -35,6 +35,7 @@ import {
   type CurveName,
   computeLeafHash,
   computePubCommit,
+  decodeCanonicalId,
   decodeIdentityCanonicalId,
   labelToField,
   paddedPublicKeyBytes,
@@ -225,19 +226,31 @@ export function verifyIdentityProof(
 /**
  * Build the `ninja.identity` sugar object.
  *
- * WHAT: returns `{ verifyProof, verifyProofOrThrow }`.
- * WHY:  no dependencies are injected — verification is entirely local (the
- *       vkeys are embedded and SHA-pinned) — but we keep the factory shape
- *       uniform with the other command modules so index.ts assembles every
+ * WHAT: returns `{ verifyProof, verifyProofOrThrow, decodeCanonicalId }`.
+ * WHY:  no dependencies are injected — verification and decoding are entirely
+ *       local (the vkeys are embedded and SHA-pinned) — but we keep the factory
+ *       shape uniform with the other command modules so index.ts assembles every
  *       namespace the same way. The same functions are exported top-level for
  *       server-side/Node reuse without constructing a client.
+ *
+ * `decodeCanonicalId` reads BOTH identity versions uniformly — V0
+ * (`0x00 || hash160(pubkey)`) and V1 (`0x01 || seedCommitment`) — so an app can
+ * branch on `me.version` and read the anchor from ONE self-describing string.
+ * It does NOT verify a V0 anchor (V0 has no ZK proof — the signed connection
+ * already authenticates it); it is a pure format decode.
  */
 export function makeIdentity(): {
   verifyProof(proof: ProofEnvelope, canonicalId: string, pub: string): boolean;
   verifyProofOrThrow(proof: ProofEnvelope, canonicalId: string, pub: string): void;
+  decodeCanonicalId(canonicalId: string): {
+    version: 0 | 1;
+    anchorHex: string;
+    seedCommitment?: string;
+  };
 } {
   return {
     verifyProof: verifyIdentityProof,
     verifyProofOrThrow,
+    decodeCanonicalId,
   };
 }

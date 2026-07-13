@@ -1,9 +1,8 @@
 import { defineConfig } from 'tsup';
 
-// Build config. Three entry points -> three subpath exports:
+// Build config. Two entry points -> two subpath exports:
 //   src/index.ts  -> "shuriken-sdk"        (framework-free core)
 //   src/react.tsx -> "shuriken-sdk/react"  (React adapter; react is a peer dep)
-//   src/compat.ts -> "shuriken-sdk/compat" (drop-in legacy metanetSDK singleton)
 //
 // We ship BOTH ESM and CJS so the package drops into modern (Vite/ESM) and
 // legacy (CRA/webpack/CJS) projects alike, with hand-written .d.ts for full
@@ -16,7 +15,6 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     react: 'src/react.tsx',
-    compat: 'src/compat.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

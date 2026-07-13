@@ -40,6 +40,14 @@ export const IDENTITY_ZK_SCHEME = 'metanet-zk-identity-v1' as const;
 /** canonicalId payload version byte for V1 ZK identities (V0 legacy ids use 0 and are NOT ZK-decodable). */
 export const IDENTITY_CANONICAL_ID_VERSION_BYTE = 1;
 
+/**
+ * canonicalId payload version byte for V0 (legacy single-wallet) identities.
+ * A V0 canonicalId is `base58(0x00 || hash160(pubkey))` — the 20-byte pkh the
+ * platform already stores as the user's canonicalId. It carries NO ZK proof
+ * (V0 predates the circuit); the signed connection response authenticates it.
+ */
+export const V0_CANONICAL_ID_VERSION_BYTE = 0;
+
 /** Circuit-level curve tags: which key-derivation gadget produced the purpose public key. */
 export const CURVE_TAGS = Object.freeze({ Ed25519: 1, Secp256k1: 2 } as const);
 
@@ -339,4 +347,77 @@ export function decodeIdentityCanonicalId(canonicalId: string): string {
     throw new Error('identity canonical id field is outside BN254 modulus');
   }
   return value.toString();
+}
+
+/** Lowercase hex of a byte array (no `0x`). */
+function bytesToHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+  return hex;
+}
+
+/**
+ * Decode ANY canonicalId — V0 (legacy) or V1 (ZK) — into its self-describing
+ * `{ version, anchorHex, seedCommitment? }`. This is the read side of the exact
+ * codec the platform's `encodeIdentityCanonicalId` (V1) and the V0 encoder use:
+ *
+ *   canonicalId = groupWithHyphens( base58Encode( [versionByte] ++ anchorBytes ) )
+ *
+ * and is byte-compatible with `metanet_frontend/src/services/identityCircomSpec.js`
+ * (same Bitcoin base58 alphabet, same 5-char hyphen grouping, same version bytes).
+ *
+ * Steps:
+ *   1. strip the display hyphens;
+ *   2. base58-decode the payload (leading `1`s → leading zero bytes, so a V0
+ *      payload — which always starts with the 0x00 version byte — round-trips);
+ *   3. read `payload[0]`:
+ *      - **0x00 (V0):** anchor is the 20-byte `hash160(pubkey)` (the raw pkh).
+ *        Returns `{ version: 0, anchorHex }` — `anchorHex` is the identical
+ *        40-char lowercase pkh the platform already calls `canonicalId`. There
+ *        is NO seedCommitment (V0 has no ZK proof).
+ *      - **0x01 (V1):** anchor is the 32-byte big-endian Poseidon seedCommitment
+ *        (a BN254 field element). Returns `{ version: 1, anchorHex, seedCommitment }`
+ *        where `seedCommitment` is the DECIMAL field string every V1 purpose
+ *        proof commits to (same value `decodeIdentityCanonicalId` returns).
+ *
+ * DESIGN: this is a LOSSLESS format wrapper — it returns the identical anchor
+ * value the platform stores; no semantic/anchor change, only self-describing
+ * encoding. Unlike {@link decodeIdentityCanonicalId} (V1-only, used by the
+ * Groth16 verifier), this accepts BOTH versions so an app can read
+ * `version` + `anchor` uniformly. It does NOT verify anything: V0 has no proof
+ * to check, and a V1 anchor's proofs are verified separately by
+ * `verifyProofOrThrow`. Throws on an empty id, a bad base58 char, an unknown
+ * version byte, or a wrong anchor length for the declared version.
+ */
+export function decodeCanonicalId(
+  canonicalId: string,
+): { version: 0 | 1; anchorHex: string; seedCommitment?: string } {
+  const stripped = String(canonicalId ?? '').replace(/-/g, '');
+  if (!stripped) throw new Error('canonical id is empty');
+  const payload = base58Decode(stripped);
+  if (payload.length < 1) throw new Error('canonical id payload is empty');
+
+  const version = payload[0];
+  const anchor = payload.slice(1);
+
+  if (version === V0_CANONICAL_ID_VERSION_BYTE) {
+    if (anchor.length !== 20) {
+      throw new Error('V0 canonical id anchor must be 20 bytes (hash160 pkh)');
+    }
+    return { version: 0, anchorHex: bytesToHex(anchor) };
+  }
+
+  if (version === IDENTITY_CANONICAL_ID_VERSION_BYTE) {
+    if (anchor.length !== 32) {
+      throw new Error('V1 canonical id anchor must be 32 bytes (seed commitment)');
+    }
+    let value = 0n;
+    for (const byte of anchor) value = (value << 8n) + BigInt(byte);
+    if (value >= FIELD_MODULUS) {
+      throw new Error('identity canonical id field is outside BN254 modulus');
+    }
+    return { version: 1, anchorHex: bytesToHex(anchor), seedCommitment: value.toString() };
+  }
+
+  throw new Error(`unsupported canonical id version byte: ${String(version)}`);
 }

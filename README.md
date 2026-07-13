@@ -230,14 +230,7 @@ function Checkout() {
 
 ## Migrating a legacy bespoke ninja SDK
 
-Already shipping one of the hand-copied per-app clients? There is a **drop-in compat layer** — swap one import line and keep every call site:
-
-```diff
-- import client from './sdk/legacyNinjaSdk';
-+ import client from 'shuriken-sdk/compat';
-```
-
-Same singleton, same method names and resolved shapes (`connect()`, `payBSV()`, `getBSVHistory()`, `scanQRCode()`, `on/off/once`, …), same localStorage keys — but every round trip now runs on the verified engine (origin allow-list, correlation, per-command timeouts, signature checks). Methods a drifted copy invented that the platform never supported (camera bridge, video transcode, `authUser`) throw a typed `NinjaError('ERR_NOT_SUPPORTED')` with a hint. Full method map + step-by-step: [docs/MIGRATION.md](./docs/MIGRATION.md).
+Already shipping one of the hand-copied per-app clients? [docs/MIGRATION.md](./docs/MIGRATION.md) is a step-by-step guide that converts each hand-rolled pattern (raw `postMessage`, the global `message` listener, the `wallet || identities` fallback) to the typed API — the wire protocol is unchanged, so it's a client-side refactor and your app's identity and history stay intact.
 
 ---
 

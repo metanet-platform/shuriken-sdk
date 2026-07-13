@@ -46,11 +46,6 @@
       "import": "./dist/react.js",
       "require": "./dist/react.cjs"
     },
-    "./compat": {
-      "types": "./dist/compat.d.ts",
-      "import": "./dist/compat.js",
-      "require": "./dist/compat.cjs"
-    },
     "./manifest.json": "./manifest.json",
     "./llms.txt": "./llms.txt",
     "./package.json": "./package.json"

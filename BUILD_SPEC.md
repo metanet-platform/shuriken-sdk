@@ -123,11 +123,6 @@ export function useQrScanner(): { last: QrScanResult | null; scanning: boolean; 
 // react is a peer dep; import from 'react'. Handle SSR (no window) gracefully.
 ```
 
-## src/compat.ts (subpath "shuriken-sdk/compat")
-```ts
-// Drop-in legacy singleton reproducing the hand-rolled client surface (connect/payBSV/getBSVHistory/scanQRCode/on/off/once, same resolved shapes + localStorage keys) delegating to the new engine. Unsupported drift methods throw NinjaError('ERR_NOT_SUPPORTED').
-```
-
 ## scripts/generate.ts
 ```ts
 // Reads ../manifest.json and (re)writes generated artifacts. Generate src/generated/capabilities.ts (typed snapshot) and validate that manifest command keys match NinjaMethod. Keep it minimal but real (no placeholder that throws).

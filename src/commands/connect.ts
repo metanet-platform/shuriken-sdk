@@ -69,8 +69,8 @@ export function toConnectionWireParams(params: ConnectParams): Record<string, un
 
   // Wallet-level info request (V1): the parent answers with `payload.wallets`
   // (`[{ chain, address|principal|account, pub }]`). Sent verbatim — the legacy
-  // scaffold SDK exposed exactly this array and apps (and the compat layer)
-  // depend on it. A V0 parent ignores it like the other V1 declaration fields.
+  // scaffold SDK exposed exactly this array and apps depend on it. A V0 parent
+  // ignores it like the other V1 declaration fields.
   if (params.wallets !== undefined && params.wallets.length > 0) {
     wire['wallets'] = params.wallets;
   }

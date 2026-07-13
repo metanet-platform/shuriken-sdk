@@ -44,7 +44,8 @@ methods are NOT promises — use the subscription form.
 - **Location:** one-shot `await ninja.geo.current()`; stream `for await (const fix of ninja.geo.watch()) { if (fix.isFinal) break; }`. Breaking the loop stops the stream.
 - **QR:** `ninja.qr.scan(({ rawValue, parsed }) => {})` — delivers the **first** decoded code then **auto-closes** the camera; keep the returned handle to `.stop()` early (before any scan).
 - **Clipboard:** `ninja.clipboard.write(text)` — returns `void`, there is no response, do not `await` a result.
-- **Port a legacy bespoke ninja SDK app in one line:** replace the local import with `import client from 'shuriken-sdk/compat'` — identical singleton surface (`connect()`, `payBSV()`, `getBSVHistory()`, `scanQRCode()`, `on/off/once`, same resolved shapes + localStorage keys) on the verified engine; then migrate call sites to the typed API per [docs/MIGRATION.md](./docs/MIGRATION.md).
+- **Read the user's anchor uniformly:** `ninja.identity.decodeCanonicalId(me.canonicalId)` → `{ version, anchorHex, seedCommitment? }`. Works for BOTH V0 (`0x00 || hash160(pubkey)` → `anchorHex` = the 40-hex pkh) and V1 (`0x01 || seedCommitment`). Pure decode, no ZK check. Always key user data on `me.canonicalId` itself, never `wallet.address`/`bsv.address`.
+- **Port a legacy hand-rolled ninja SDK app:** follow [docs/MIGRATION.md](./docs/MIGRATION.md) — convert each raw-`postMessage` call site to the typed API (`ninja.call` / the sugar). The wire protocol is unchanged, so identity and history are preserved.
 
 ## Errors
 

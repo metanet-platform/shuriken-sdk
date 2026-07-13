@@ -32,5 +32,5 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 - `connect()` (init/transport) then `ninja.connect()` (identity) — different calls.
 
 ## Optional
-- [MIGRATION](./docs/MIGRATION.md): moving a legacy bespoke ninja SDK onto shuriken-sdk.
-- Drop-in legacy shim: `import client from 'shuriken-sdk/compat'` — the legacy bespoke ninja SDK singleton surface (connect/payBSV/getBSVHistory/scanQRCode/on/off/once, same resolved shapes + localStorage keys) running on the verified engine; unsupported drift methods throw ERR_NOT_SUPPORTED.
+- [MIGRATION](./docs/MIGRATION.md): converting a legacy hand-rolled ninja SDK app to the typed shuriken-sdk API (wire unchanged; client-side refactor).
+- `decodeCanonicalId(canonicalId)` → `{ version, anchorHex, seedCommitment? }` (also `ninja.identity.decodeCanonicalId`): decodes BOTH identity versions of `me.canonicalId` = base58(versionByte||anchor), hyphen-grouped — V0 `0x00||hash160(pubkey)` (anchorHex = 40-hex pkh), V1 `0x01||seedCommitment` (32-byte field). Pure decode, no ZK check. Always key user data on `me.canonicalId`.

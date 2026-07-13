@@ -220,6 +220,9 @@ export interface Ninja {
    * Client-side ZK proof verification (real Groth16 pairing check against the
    * embedded SHA-pinned vkeys): `identity.verifyProof(env, canonicalId, pub)`
    * → boolean, `identity.verifyProofOrThrow(...)` → throws ERR_PROOF_INVALID.
+   * Also `identity.decodeCanonicalId(me.canonicalId)` →
+   * `{ version, anchorHex, seedCommitment? }` — reads BOTH V0 and V1 anchors
+   * from the one self-describing canonicalId string (pure decode, no ZK check).
    */
   identity: ReturnType<typeof makeIdentity>;
 
@@ -478,6 +481,16 @@ export type { BroadcastOptions, BroadcastTxResult } from './broadcast';
  * ERR_VKEY_INTEGRITY instead of verifying anything (fail closed).
  */
 export { verifyIdentityProof, verifyProofOrThrow } from './commands/identity';
+
+/**
+ * `decodeCanonicalId(canonicalId)` → `{ version, anchorHex, seedCommitment? }`.
+ * Decodes BOTH identity versions of the self-describing `me.canonicalId` string:
+ *   V0 → `{ version: 0, anchorHex }`  (anchor = `hash160(pubkey)`, the 40-hex pkh)
+ *   V1 → `{ version: 1, anchorHex, seedCommitment }` (anchor = the 32-byte field)
+ * Pure format decode — no ZK verification (see `ninja.identity.decodeCanonicalId`).
+ * Exported top-level so a server can read the version + anchor without a client.
+ */
+export { decodeCanonicalId, V0_CANONICAL_ID_VERSION_BYTE } from './zk/spec';
 export { VKEY_SHA256, getVerifiedVkey } from './zk/vkeys';
 export type { Groth16Vkey, VkeyCurve } from './zk/vkeys';
 
