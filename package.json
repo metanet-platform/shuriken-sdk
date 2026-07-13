@@ -14,7 +14,7 @@
     "zk-proof",
     "web3"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "metanet-platform <support@metanet.ninja>",
   "homepage": "https://github.com/metanet-platform/shuriken-sdk#readme",
   "repository": {
@@ -29,7 +29,8 @@
     "llms.txt",
     "AGENTS.md",
     "PROTOCOL.md",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

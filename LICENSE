@@ -1,0 +1,125 @@
+Metanet Shuriken SDK License
+Version 1.0 — 2026
+
+Copyright (c) 2026 Deucalion Capital LLC, a Wyoming (USA) company
+(metanet-platform). All rights reserved.
+
+This is a source-available license. You MAY read, modify, and tailor the SDK to
+your needs — but ONLY for connecting applications to the Metanet Platform. It is
+NOT an open-source license: use for any other purpose is not permitted. If you
+do not agree, do not use the SDK.
+
+1. DEFINITIONS
+   "SDK" means the shuriken-sdk software in any form — source code, compiled or
+   bundled artifacts, embedded verification keys, type definitions, and
+   accompanying documentation — as made available by the Licensor.
+   "Licensor" means Deucalion Capital LLC, a Wyoming (USA) company and
+   the owner of the SDK and of the Metanet intellectual property (the IP-holding
+   entity). The Metanet Platform may be operated by an affiliated operating
+   entity; this License is nonetheless granted by, and all intellectual-property
+   rights in the SDK belong to, the Licensor.
+   "Metanet Platform" means the Metanet Web3.0 social network and Web3.0 wallet
+   and identity system operated at metanet.page and metanet.ninja, including
+   their subdomains, official application interfaces, and their successors, and
+   any other property the Licensor designates in writing.
+   "Permitted Purpose" means developing and operating an application that
+   connects to and interoperates with the Metanet Platform through the SDK's
+   interfaces (for example, an embedded/iframed app that uses the Metanet
+   Platform's identity, payment, feed, proof, and related capabilities).
+   "Your Modifications" means any modification, adaptation, or derivative work
+   of the SDK that You make.
+   "You" means the individual or entity exercising rights under this License.
+
+2. LICENSE GRANT
+   Subject to Your continuous compliance with this License, Licensor grants You
+   a limited, worldwide, non-exclusive, non-transferable, revocable license to
+   use, reproduce, MODIFY, create derivative works of, and integrate the SDK,
+   and to distribute the SDK together with Your Modifications as part of an
+   application, in each case SOLELY for the Permitted Purpose. You are free to
+   tailor the SDK to Your needs within that purpose.
+
+3. RESTRICTIONS
+   You may not, and may not permit or enable any third party to:
+   (a) use the SDK, or any part of it (including its proof-verification methods,
+       algorithms, verification keys, or wire protocol), or any of Your
+       Modifications, for any purpose other than the Permitted Purpose;
+   (b) use the SDK or Your Modifications to connect any application to, or to
+       interoperate with, any social network, wallet, ledger, identity system,
+       or platform other than the Metanet Platform;
+   (c) use the SDK or Your Modifications to build, operate, or assist any
+       product or service that competes with the Metanet Platform;
+   (d) remove, obscure, or alter any copyright, patent, trademark, or other
+       proprietary or attribution notice in the SDK.
+   For the avoidance of doubt: modifying and tailoring the SDK is expressly
+   permitted by Section 2, provided every modification and its use remain within
+   the Permitted Purpose.
+
+4. DISTRIBUTION
+   You may distribute the SDK, including versions with Your Modifications, only
+   when ALL of the following are true: (i) it is distributed as part of, or
+   bundled within, Your application, and not on a standalone basis; (ii) that
+   application's sole use of the SDK is for the Permitted Purpose; (iii) You
+   retain all notices and include a copy of this License; and (iv) You clearly
+   mark any files You have changed as modified by You. This License continues to
+   govern the SDK and Your Modifications. Standalone distribution of the SDK, or
+   distribution for use with anything other than the Metanet Platform, is not
+   permitted.
+
+5. RESERVATION OF RIGHTS; INTELLECTUAL PROPERTY
+   The SDK is licensed, not sold. Licensor and its licensors retain all right,
+   title, and interest in and to the SDK, including all copyrights, patents
+   (including pending applications), trademarks, and trade secrets. You retain
+   ownership of the original portions You author in Your Modifications, subject
+   to Licensor's rights in the SDK and to this License. No rights are granted
+   except those expressly stated here. Portions of the SDK — including its
+   identity proof-verification methods — are the subject of one or more pending
+   patent applications; no patent license is granted other than the limited
+   right to use and modify the SDK, as licensed, for the Permitted Purpose.
+
+6. TRADEMARKS
+   "Metanet", "shuriken-sdk", "metanet.page", and "metanet.ninja" are
+   trademarks or trade names of the Licensor (trademark applications pending).
+   This License grants no right to use them except as reasonably necessary to
+   accurately describe Your application's integration with the Metanet Platform.
+
+7. THIRD-PARTY COMPONENTS
+   The SDK bundles third-party open-source components (including @noble/curves,
+   @noble/hashes, and poseidon-lite), each provided under its own license
+   (MIT). This License governs the SDK as a whole and the Licensor's own code,
+   materials, and embedded keys; it does not enlarge or diminish, and does not
+   purport to restrict, Your rights in those third-party components when
+   obtained separately under their own terms.
+
+8. TERMINATION
+   This License terminates automatically and immediately if You breach any of
+   its terms, if Your application ceases to connect to the Metanet Platform, or
+   if You use the SDK or Your Modifications for a purpose other than the
+   Permitted Purpose. On termination, You must cease all use of the SDK and Your
+   Modifications and destroy all copies in Your possession or control. Sections
+   3, 5, 6, 7, 8, 9, 10, and 11 survive termination.
+
+9. DISCLAIMER OF WARRANTY
+   THE SDK IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-
+   INFRINGEMENT. YOU BEAR THE ENTIRE RISK OF USING THE SDK.
+
+10. LIMITATION OF LIABILITY
+    TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT WILL LICENSOR BE LIABLE
+    FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES,
+    OR FOR ANY LOSS OF PROFITS, DATA, OR GOODWILL, ARISING OUT OF OR RELATED TO
+    THE SDK OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+    LICENSOR'S TOTAL AGGREGATE LIABILITY WILL NOT EXCEED USD 100.
+
+11. GOVERNING LAW; FORUM
+    This License is governed by the laws of the State of Wyoming, USA, excluding
+    its conflict-of-laws rules and the United Nations Convention on Contracts
+    for the International Sale of Goods. The state and federal courts located in
+    the State of Wyoming will have exclusive jurisdiction over any dispute
+    arising out of or relating to this License, and You consent to their
+    personal jurisdiction and venue; provided, however, that Licensor may seek
+    injunctive or other equitable relief to protect its intellectual property in
+    any court of competent jurisdiction.
+
+For any use beyond the Permitted Purpose, or for a separate commercial license,
+contact support@metanet.ninja.
