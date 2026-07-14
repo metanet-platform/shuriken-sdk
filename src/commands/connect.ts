@@ -31,6 +31,21 @@ import { verifyProofOrThrow } from './identity';
 export const CONSENT_CONNECT_TIMEOUT_MS = 600_000;
 
 /**
+ * Liveness re-posts for the `connection` request on the ASSUME-LEGACY path
+ * (protocol 0 — the parent never answered `ninja-hello`, so we have no proof
+ * its message listener is attached yet). Legacy parents subscribe on iframe
+ * `load`, which routinely fires AFTER the app's first post; without re-posts
+ * the request is silently dropped and the connect hangs until timeout. The
+ * hand-copied SDKs all carried a retry loop for exactly this reason. Six
+ * re-posts at 1.5s cover the same ~9s window those loops did. Safe on legacy
+ * parents: the V0 handler answers each duplicate immediately and the codec
+ * settles once per ref. A negotiating parent (protocol ≥ 1) has already
+ * proven it is listening, so no re-posts are armed there.
+ */
+export const CONNECTION_RESEND_INTERVAL_MS = 1_500;
+export const CONNECTION_MAX_RESENDS = 6;
+
+/**
  * Map the ergonomic {@link ConnectParams} onto the parent's exact `connection`
  * wire shape.
  *
@@ -159,15 +174,20 @@ export function verifyConnectionProofs(result: ConnectResult): void {
  *       store the codec reads on every verify. Keeping `setSession` external (not
  *       reaching into the codec here) preserves the single-writer invariant.
  *
- * @param codec      the wire engine; `call('connection', …)` does the round trip.
- * @param setSession publishes `{ pub, version, genericUseSeed }` into the shared
- *                   session store the codec's `getSession()` reads when verifying
- *                   signatures (and `pay.bsv` reads when signing broadcasts).
+ * @param codec       the wire engine; `call('connection', …)` does the round trip.
+ * @param setSession  publishes `{ pub, version, genericUseSeed }` into the shared
+ *                    session store the codec's `getSession()` reads when verifying
+ *                    signatures (and `pay.bsv` reads when signing broadcasts).
+ * @param getProtocol live accessor for the negotiated protocol number. Protocol 0
+ *                    (assume-legacy: no `ninja-ready` seen) arms connection
+ *                    re-posts — see {@link CONNECTION_MAX_RESENDS}. A thunk so a
+ *                    late-settling negotiation is read at call time, not capture time.
  * @returns `(params?) => Promise<ConnectResult>`.
  */
 export function makeConnect(
   codec: Codec,
   setSession: (s: Session) => void,
+  getProtocol: () => number = () => 0,
 ): (params?: ConnectParams) => Promise<ConnectResult> {
   return async function connect(params: ConnectParams = {}): Promise<ConnectResult> {
     // Fire the raw wire call with the translated params, asking the codec for the
@@ -192,10 +212,26 @@ export function makeConnect(
     const needsConsent = wire['identities'] !== undefined || wire['appIdentity'] !== undefined;
     const timeoutMs = params.timeoutMs ?? (needsConsent ? CONSENT_CONNECT_TIMEOUT_MS : undefined);
 
+    // Liveness: on the assume-legacy path (protocol 0) the parent never
+    // confirmed it is listening, so the single post can land before its
+    // listener attaches and be dropped. Re-post the SAME envelope (same ref)
+    // until the first response — exactly the retry the hand-rolled SDKs did.
+    // A negotiating parent answered `ninja-hello`, so its listener is proven
+    // live and re-posts are skipped (they would re-trigger the V1 consent
+    // handler for no benefit).
+    const resend =
+      getProtocol() === 0
+        ? { intervalMs: CONNECTION_RESEND_INTERVAL_MS, maxResends: CONNECTION_MAX_RESENDS }
+        : undefined;
+
     const { payload, envelope } = await codec.call<CallWithEnvelope<Record<string, unknown>>>(
       'connection',
       wire,
-      { withEnvelope: true, ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
+      {
+        withEnvelope: true,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(resend !== undefined ? { resend } : {}),
+      },
     );
 
     // Map the raw payload onto the ConnectResult union (+ `.raw` escape hatch).

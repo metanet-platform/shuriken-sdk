@@ -96,6 +96,8 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
   /** Detach the AbortSignal listener (if any) on settlement — avoids a leak. */
   cleanupAbort?: () => void;
+  /** Stop the resend interval (if any) on settlement — see CallOptions.resend. */
+  cleanupResend?: () => void;
   /**
    * When true, resolve with `{ payload, envelope }` instead of the bare payload —
    * the caller needs the envelope's top-level extras (connection response only:
@@ -216,6 +218,7 @@ export class Codec {
         this.#pending.delete(ref);
         clearTimeout(entry.timer);
         entry.cleanupAbort?.();
+        entry.cleanupResend?.();
         fn();
       };
 
@@ -246,6 +249,27 @@ export class Codec {
         cleanupAbort = () => signal.removeEventListener('abort', onAbort);
       }
 
+      // Resend arming (opt-in liveness, see CallOptions.resend): the envelope is
+      // built ONCE and re-posted verbatim (same ref) on an interval, so a parent
+      // whose listener attaches after our first post still receives the request.
+      // The interval self-stops after `maxResends` and is torn down in settle()
+      // on every exit path (response, timeout, abort, dispose).
+      const envelope = buildRequest(method, ref, params as Record<string, unknown>);
+      let cleanupResend: (() => void) | undefined;
+      if (opts.resend && opts.resend.maxResends > 0) {
+        const { intervalMs, maxResends } = opts.resend;
+        let sent = 0;
+        const resendTimer = setInterval(() => {
+          sent += 1;
+          if (sent > maxResends) {
+            clearInterval(resendTimer);
+            return;
+          }
+          this.#transport.post(envelope);
+        }, intervalMs);
+        cleanupResend = () => clearInterval(resendTimer);
+      }
+
       // (1) register BEFORE (2) posting — closes the sync-response race window.
       this.#pending.set(ref, {
         method,
@@ -254,13 +278,14 @@ export class Codec {
         reject: (err) => settle(() => reject(err)),
         timer,
         cleanupAbort,
+        cleanupResend,
         // Thread the caller's envelope request through to handleResponse (which is
         // the only place holding the full envelope when the reply arrives).
         ...(opts.withEnvelope ? { withEnvelope: true } : {}),
       });
 
       // (2) post. envelope.ts owns the exact wire shape; we never hand-roll it.
-      this.#transport.post(buildRequest(method, ref, params as Record<string, unknown>));
+      this.#transport.post(envelope);
     });
   }
 

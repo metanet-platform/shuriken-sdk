@@ -50,7 +50,19 @@ const READY_TYPE = 'ninja-ready' as const;
  */
 // TODO(v1.0): inject this from package.json `version` at build time (define
 // replacement in tsup) so it can never drift from the published version.
-const SDK_VERSION = '0.1.0';
+const SDK_VERSION = '0.1.1';
+
+/**
+ * How often (ms) the `ninja-hello` is re-posted while waiting for `ninja-ready`.
+ *
+ * WHY: `postMessage` has no delivery receipt and a parent typically attaches its
+ * listener only after the iframe's `load` event — often AFTER our first hello.
+ * Re-posting throughout the ready window means a negotiation-aware parent that
+ * subscribes late still sees an announcement and can answer. Duplicates are
+ * harmless (`finish()` settles once). 400ms gives ~3 shots inside the default
+ * 1.5s window without meaningful traffic.
+ */
+const HELLO_REPOST_INTERVAL = 400;
 
 /**
  * The raw `ninja-ready` payload we expect from a negotiation-aware parent.
@@ -114,13 +126,14 @@ export function negotiate(
     // leave the other side's cleanup unrun.
     let settled = false;
 
-    // Assigned below; declared here so `finish()` can clear the timer and the
+    // Assigned below; declared here so `finish()` can clear the timers and the
     // ready-listener regardless of which one triggers settlement.
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let helloTimer: ReturnType<typeof setInterval> | undefined;
     let unsubscribe: (() => void) | undefined;
 
     /**
-     * finish — settle once and tear down BOTH the timer and the subscription.
+     * finish — settle once and tear down the timers and the subscription.
      * WHY: single cleanup path so neither a late `ninja-ready` nor a fired timer
      *      can leak a listener/timer or double-resolve.
      */
@@ -128,6 +141,7 @@ export function negotiate(
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (helloTimer !== undefined) clearInterval(helloTimer);
       if (unsubscribe) unsubscribe();
       resolve(result);
     };
@@ -144,26 +158,36 @@ export function negotiate(
     // `type` is the control-frame discriminator (`ninja-hello`), NOT a
     // `<method>-response`; the params live in `detail`. A legacy parent simply
     // ignores an unrecognized `type`, which is precisely why the timeout path exists.
-    t.post({
-      command: WIRE_COMMAND,
-      // The request envelope's `type` is normally the constant marker; for the
-      // handshake control frame we overload the top-level `type` to the hello
-      // discriminator so a negotiation-aware parent can route it. Cast because
-      // this is a control frame, not a standard RequestEnvelope method call.
-      type: HELLO_TYPE,
-      detail: {
+    const postHello = (): void => {
+      t.post({
+        command: WIRE_COMMAND,
+        // The request envelope's `type` is normally the constant marker; for the
+        // handshake control frame we overload the top-level `type` to the hello
+        // discriminator so a negotiation-aware parent can route it. Cast because
+        // this is a control frame, not a standard RequestEnvelope method call.
         type: HELLO_TYPE,
-        // No correlation ref: the handshake is not request/response-correlated;
-        // it is a fire-and-listen announcement answered (if at all) by a
-        // broadcast `ninja-ready`. Empty string keeps the RequestEnvelope shape valid.
-        ref: '',
-        protocols: opts.protocols,
-        sdkVersion: SDK_VERSION,
-      },
-      // The RequestEnvelope type pins `type` to the wire marker and `detail.type`
-      // to a NinjaMethod; a control frame legitimately deviates, so we assert the
-      // shape here at the single, documented boundary where it happens.
-    } as unknown as import('../types').RequestEnvelope);
+        detail: {
+          type: HELLO_TYPE,
+          // No correlation ref: the handshake is not request/response-correlated;
+          // it is a fire-and-listen announcement answered (if at all) by a
+          // broadcast `ninja-ready`. Empty string keeps the RequestEnvelope shape valid.
+          ref: '',
+          protocols: opts.protocols,
+          sdkVersion: SDK_VERSION,
+        },
+        // The RequestEnvelope type pins `type` to the wire marker and `detail.type`
+        // to a NinjaMethod; a control frame legitimately deviates, so we assert the
+        // shape here at the single, documented boundary where it happens.
+      } as unknown as import('../types').RequestEnvelope);
+    };
+    postHello();
+
+    // Re-post the hello throughout the ready window: postMessage has no delivery
+    // receipt, and a parent that attaches its listener AFTER our first post (the
+    // normal case — parents subscribe on iframe `load`) would otherwise never see
+    // the announcement. Duplicates are harmless: `finish()` settles once, and a
+    // negotiation-aware parent answers each hello with the same `ninja-ready`.
+    helloTimer = setInterval(postHello, HELLO_REPOST_INTERVAL);
 
     // --- Legacy fallback timer. ---
     // If no valid `ninja-ready` arrives in time, assume a pre-negotiation parent:

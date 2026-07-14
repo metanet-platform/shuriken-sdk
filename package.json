@@ -1,6 +1,6 @@
 {
   "name": "shuriken-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The official SDK for apps on the Metanet social network (metanet.page). One typed, signature-verifying bridge to the parent platform: identity, BSV/ICP/KDA payments, feed posts, ZK proofs, transactions, geolocation, QR. Works in React or any JS/TS project.",
   "keywords": [
     "metanet",

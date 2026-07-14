@@ -368,7 +368,10 @@ export async function connect(options: ConnectOptions = {}): Promise<Ninja> {
   // identity verification is entirely client-side (no codec dependency); the
   // factory takes no arguments (see commands/identity.ts + BUILD_SPEC).
   const identity = makeIdentity();
-  const connectSugar = makeConnect(codec, setSession);
+  // `getProtocol` tells connect() whether the parent proved it is listening
+  // (protocol ≥ 1 via ninja-ready) or we assumed legacy (0) — the legacy path
+  // arms connection re-posts to survive a late-attaching parent listener.
+  const connectSugar = makeConnect(codec, setSession, () => negotiated.protocol);
 
   /**
    * `capabilities()` implementation.

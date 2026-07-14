@@ -494,6 +494,18 @@ export interface CallOptions {
    * payload). Used internally by `connect()`; rarely needed by apps.
    */
   withEnvelope?: boolean;
+  /**
+   * Liveness: re-post the SAME request envelope (same `ref`) every `intervalMs`
+   * ms, up to `maxResends` extra posts, until a response arrives. Exists because
+   * a legacy parent attaches its message listener only after the iframe's `load`
+   * event — a request posted before that is silently dropped, and `postMessage`
+   * has no delivery receipt. Correlation stays safe: the parent may answer a
+   * duplicate, but every reply carries the one shared `ref` and the codec
+   * settles a pending entry exactly once (late duplicates fall through to the
+   * unknown-frame sink). Used internally by `connect()` on the assume-legacy
+   * path; only meaningful for requests the parent handles idempotently.
+   */
+  resend?: { intervalMs: number; maxResends: number };
 }
 
 /** What `call(..., { withEnvelope: true })` resolves with. */
