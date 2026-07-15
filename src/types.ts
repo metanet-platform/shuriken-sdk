@@ -478,6 +478,45 @@ export interface ConnectOptions {
   timeoutMs?: Partial<TimeoutTable>;
   /** Inject the parent window (defaults to window.parent). Useful for tests. */
   targetWindow?: Window;
+  /**
+   * Nav-chrome preferences announced in `ninja-hello`, applied by the parent
+   * for the lifetime of THIS app page and reverted when the user navigates
+   * away. Purely advisory: the parent sanitizes and clamps every field and may
+   * ignore any of them (legacy parents ignore the whole object). After the
+   * parent applies them, the `ninja-ready` reply carries the resulting
+   * measured geometry in `layout` — so `ninja.layout().navBottom` already
+   * reflects your requested chrome.
+   */
+  nav?: NinjaNavPrefs;
+}
+
+/**
+ * App-requested styling for the platform's fixed nav bar (see
+ * `ConnectOptions.nav`). Everything optional; omitted fields keep the
+ * platform default. The parent clamps numbers and allowlists colors —
+ * these are requests, not commands.
+ */
+export interface NinjaNavPrefs {
+  /**
+   * Nav background (color / gradient, same allowlist as the `connection`
+   * request's `navbg` — no `url()`, quotes, or escapes). Announcing it here
+   * themes the nav at handshake time, BEFORE the user connects; `navbg` on
+   * `connect()` still works and overrides it.
+   */
+  bg?: string;
+  /**
+   * Desired nav width: `'full'` stretches edge-to-edge, a number is a
+   * max-width in CSS px (parent clamps to a sane range). Default: the
+   * platform's standard centered width.
+   */
+  width?: number | 'full';
+  /** `false` squares the nav's bottom corners; default keeps the platform's rounding. */
+  roundedBottom?: boolean;
+  /**
+   * Side inset (CSS px, clamped) between the nav and the screen edges on
+   * small screens. `0` makes the nav flush with the edges.
+   */
+  sideMargins?: number;
 }
 
 export interface CallOptions {
@@ -526,8 +565,28 @@ export interface Subscription {
 export interface NinjaEvents {
   disconnect: () => void;
   connect: (id: ConnectResult) => void;
+  /** Parent chrome geometry changed (e.g. the nav bar was redesigned/resized). */
+  layout: (layout: NinjaLayout) => void;
+  /** The user switched the platform language while your app is open. */
+  locale: (locale: string) => void;
   /** Any unrecognized `<type>-response` is routed here, never dropped. */
   [key: `${string}-response`]: (payload: ResponsePayload) => void;
+}
+
+/**
+ * Parent-chrome geometry shared with the embedded app.
+ *
+ * WHAT: `navBottom` is the bottom edge (CSS px, viewport coordinates) of the
+ *       platform's fixed navigation bar, MEASURED by the parent at send time.
+ * WHY:  apps render fullscreen underneath the nav and must keep their own
+ *       chrome below it. Receiving the measured value (initially inside
+ *       `ninja-ready`, then via `ninja-layout` pushes whenever it changes)
+ *       means apps adapt automatically to platform redesigns instead of
+ *       hardcoding a pixel constant that silently rots.
+ */
+export interface NinjaLayout {
+  /** Bottom edge of the parent's fixed nav bar, in CSS pixels from the viewport top. */
+  navBottom: number;
 }
 
 /** Runtime capability info negotiated at handshake (or defaulted for legacy). */
@@ -535,4 +594,18 @@ export interface Negotiated {
   protocol: number;
   capabilities: Set<NinjaMethod | string>;
   ledgers?: string[];
+  /**
+   * Parent chrome geometry advertised in `ninja-ready` (absent on legacy
+   * parents and on modern parents that predate the layout field). The LIVE
+   * value — updated by `ninja-layout` pushes — is `ninja.layout()`.
+   */
+  layout?: NinjaLayout;
+  /**
+   * The user's platform language (i18n code, e.g. `en`, `el`, `pt-BR`)
+   * advertised in `ninja-ready`. Replaces reading the legacy `metanetLang`
+   * query param from the iframe URL. The LIVE value — updated by
+   * `ninja-locale` pushes when the user switches language — is
+   * `ninja.locale()`. Absent on legacy/pre-locale parents.
+   */
+  locale?: string;
 }

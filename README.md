@@ -188,6 +188,41 @@ await ninja.openLink('https://example.com');                 // consent overlay
 ninja.clipboard.write('copied');                             // fire-and-forget (no response)
 ```
 
+## Layout, nav chrome & locale (v0.2)
+
+Your app renders fullscreen **under** the platform's fixed nav bar. Don't hardcode its
+height — the parent measures and tells you:
+
+```ts
+const ninja = await connect({
+  dev: import.meta.env.DEV,
+  // Optional: ask the platform to restyle its nav for your app (advisory —
+  // sanitized/clamped parent-side, auto-reverted when the user navigates away).
+  nav: { bg: '#0f172a', width: 'full', roundedBottom: false, sideMargins: 0 },
+});
+
+const navBottom = ninja.layout()?.navBottom ?? 58;   // null on legacy parents → fallback
+document.documentElement.style.setProperty('--nav-clearance', `${navBottom}px`);
+
+ninja.on('layout', ({ navBottom }) => {              // parent redesigns propagate live
+  document.documentElement.style.setProperty('--nav-clearance', `${navBottom}px`);
+});
+```
+
+`ninja.layout()` is seeded by the handshake (measured AFTER your `nav` prefs are applied)
+and kept current by parent pushes. `navbg` on `ninja.connect()` still works and overrides
+`nav.bg` — the handshake variant just themes the bar before the user connects.
+
+The user's platform **language** rides the same handshake — no more scraping the
+(deprecated) `metanetLang` query param, and unlike the param it follows mid-session
+switches:
+
+```ts
+const lng = ninja.locale() ?? new URLSearchParams(location.search).get('metanetLang') ?? 'en';
+i18next.changeLanguage(lng);
+ninja.on('locale', (lng) => i18next.changeLanguage(lng));   // user switched language live
+```
+
 ## Errors — typed, localizable
 
 Every failure is a `NinjaError` with a machine-readable `code`. Never string-match; branch on `code`, and localize with your own `t(code)`.

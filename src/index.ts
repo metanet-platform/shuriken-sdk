@@ -24,6 +24,7 @@ import type {
   ConnectResult,
   Negotiated,
   NinjaEvents,
+  NinjaLayout,
   NinjaMethod,
   ResponsePayload,
 } from './types';
@@ -32,7 +33,7 @@ import { NinjaError } from './errors';
 // ── Construction primitives (each its own audited module; see BUILD_SPEC) ──────
 import { makeOriginPolicy } from './transport/originPolicy';
 import { Transport } from './transport/transport';
-import { negotiate } from './transport/handshake';
+import { negotiate, nextLayout, nextLocale } from './transport/handshake';
 import { Codec, type Session } from './protocol/codec';
 
 // ── Typed sugar factories (thin wrappers over codec.call / codec.stream) ───────
@@ -239,6 +240,30 @@ export interface Ninja {
   readonly negotiated: Negotiated;
 
   /**
+   * The parent's CURRENT chrome geometry, or null when the parent never
+   * advertised one (legacy / pre-layout parents).
+   *
+   * `layout().navBottom` is the MEASURED bottom edge of the platform nav bar
+   * (CSS px from the viewport top): keep your app's own top chrome below it
+   * instead of hardcoding the platform's nav height. Seeded from `ninja-ready`,
+   * kept current by `ninja-layout` pushes; subscribe to changes with
+   * `ninja.on('layout', cb)`. On null, fall back to your own constant.
+   */
+  layout(): NinjaLayout | null;
+
+  /**
+   * The user's CURRENT platform language (i18n code, e.g. `en`, `el`,
+   * `pt-BR`), or null when the parent never advertised one (legacy parents).
+   *
+   * Seeded from `ninja-ready`, kept current by `ninja-locale` pushes when the
+   * user switches language mid-session — subscribe with
+   * `ninja.on('locale', cb)`. Replaces reading the legacy `metanetLang`
+   * query param off the iframe URL (still present for older apps; on null,
+   * fall back to it).
+   */
+  locale(): string | null;
+
+  /**
    * Introspect capabilities.
    * - `capabilities()` -> the manifest slice for every negotiated command.
    * - `capabilities(method)` -> the manifest slice for one command (or `undefined`
@@ -311,6 +336,9 @@ export async function connect(options: ConnectOptions = {}): Promise<Ninja> {
     protocols: options.protocols ?? DEFAULT_PROTOCOLS,
     readyTimeout: options.readyTimeout ?? DEFAULT_READY_TIMEOUT,
     capabilitiesFallback: LEGACY_CAPABILITIES,
+    // Advisory nav-chrome request (ConnectOptions.nav): rides ninja-hello so a
+    // nav-aware parent can theme its bar for this app BEFORE the user connects.
+    ...(options.nav !== undefined ? { nav: options.nav } : {}),
   });
 
   // 5a. The mutable session cell. Starts empty: the *connection* response is the
@@ -326,6 +354,40 @@ export async function connect(options: ConnectOptions = {}): Promise<Ninja> {
 
   // 5b. The event emitter backing `ninja.on/off`, and the codec's `onEvent` sink.
   const emitter = new Emitter();
+
+  // 5b'. The mutable layout cell. Seeded from the handshake (`ninja-ready` may
+  //      carry the parent's measured chrome geometry) and kept current by
+  //      unsolicited `ninja-layout` control pushes on the raw channel — same
+  //      source/origin gate as everything else, no signature (it is
+  //      presentational geometry established before any session key exists,
+  //      exactly like `ninja-ready` itself). Null means "parent never said":
+  //      apps keep their own fallback rather than trusting a fabricated 0.
+  //      The subscription is owned by the transport and dies with `disconnect()`.
+  let layout: NinjaLayout | null = negotiated.layout ?? null;
+
+  // 5b''. The mutable locale cell — the user's platform language. Seeded from
+  //       `ninja-ready.locale`, kept current by `ninja-locale` pushes when the
+  //       user switches language mid-session. Replaces the legacy `metanetLang`
+  //       iframe query param. Null = parent never advertised → apps fall back
+  //       to the query param or their own default.
+  let locale: string | null = negotiated.locale ?? null;
+
+  // One raw subscription serves both control-push cells; the transition
+  // functions own validation AND change-dedupe (no-op re-announcements never
+  // reach `ninja.on('layout'/'locale')` listeners).
+  transport.onRaw((data: unknown): void => {
+    const nl = nextLayout(layout, data);
+    if (nl) {
+      layout = nl;
+      emitter.emit('layout', nl);
+      return;
+    }
+    const loc = nextLocale(locale, data);
+    if (loc) {
+      locale = loc;
+      emitter.emit('locale', loc);
+    }
+  });
 
   // 5c. Merge caller timeout overrides on top of the protocol defaults. A partial
   //     override table only replaces the keys it names; everything else keeps the
@@ -434,6 +496,8 @@ export async function connect(options: ConnectOptions = {}): Promise<Ninja> {
     protocol: negotiated.protocol,
     negotiated,
     capabilities,
+    layout: () => layout,
+    locale: () => locale,
     disconnect,
   };
 

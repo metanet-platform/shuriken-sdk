@@ -17,7 +17,7 @@
  *       so there is no leak and no double-settle regardless of which side wins.
  */
 
-import type { Negotiated, NinjaMethod } from '../types';
+import type { Negotiated, NinjaLayout, NinjaMethod } from '../types';
 import type { Transport } from './transport';
 
 /**
@@ -40,6 +40,38 @@ const HELLO_TYPE = 'ninja-hello' as const;
 const READY_TYPE = 'ninja-ready' as const;
 
 /**
+ * Inbound: unsolicited parent push carrying updated chrome geometry.
+ *
+ * WHAT: `{ command: 'ninja-app-command', type: 'ninja-layout', layout: {...} }`,
+ *       posted by the parent whenever its nav bar geometry changes (and once on
+ *       observer attach). Not correlated to any request — a control frame, like
+ *       `ninja-ready`, delivered via the transport's raw channel.
+ * WHY:  the initial geometry rides `ninja-ready`, but the parent's chrome can
+ *       change (responsive relayout, future redesigns) while the app is live;
+ *       this frame keeps `ninja.layout()` current without re-handshaking.
+ */
+const LAYOUT_TYPE = 'ninja-layout' as const;
+
+/**
+ * Inbound: unsolicited parent push carrying the user's new platform language.
+ *
+ * WHAT: `{ command: 'ninja-app-command', type: 'ninja-locale', locale: 'el' }`,
+ *       posted when the user switches language while the app is open. The
+ *       INITIAL locale rides `ninja-ready.locale` — this frame keeps
+ *       `ninja.locale()` current. Together they replace the legacy
+ *       `metanetLang` iframe query param.
+ */
+const LOCALE_TYPE = 'ninja-locale' as const;
+
+/**
+ * Locale validation: 2-35 chars of letters/digits/hyphen/underscore covers
+ * every real i18n tag (`en`, `el`, `pt-BR`, `zh-Hant`) while rejecting
+ * anything that could smuggle markup/CSS into an app that interpolates the
+ * value. Untrusted input — validated at the boundary like everything else.
+ */
+const LOCALE_RE = /^[A-Za-z0-9_-]{2,35}$/;
+
+/**
  * Our own package version, echoed in `ninja-hello`.
  *
  * WHAT: a human-readable SDK version string the parent may log or branch on.
@@ -50,7 +82,7 @@ const READY_TYPE = 'ninja-ready' as const;
  */
 // TODO(v1.0): inject this from package.json `version` at build time (define
 // replacement in tsup) so it can never drift from the published version.
-const SDK_VERSION = '0.1.1';
+const SDK_VERSION = '0.2.0';
 
 /**
  * How often (ms) the `ninja-hello` is re-posted while waiting for `ninja-ready`.
@@ -83,10 +115,14 @@ interface NinjaReadyMessage {
     protocol?: unknown;
     capabilities?: unknown;
     ledgers?: unknown;
+    layout?: unknown;
+    locale?: unknown;
   };
   protocol?: unknown;
   capabilities?: unknown;
   ledgers?: unknown;
+  layout?: unknown;
+  locale?: unknown;
 }
 
 /**
@@ -117,6 +153,13 @@ export function negotiate(
     protocols: number[];
     readyTimeout: number;
     capabilitiesFallback: string[];
+    /**
+     * App-requested nav chrome (ConnectOptions.nav), forwarded verbatim inside
+     * `ninja-hello`. The PARENT owns sanitization/clamping — the SDK does not
+     * pre-validate a purely advisory request, so new fields can flow to newer
+     * parents without an SDK release. Omitted entirely when the app sets none.
+     */
+    nav?: object;
   },
 ): Promise<Negotiated> {
   return new Promise<Negotiated>((resolve) => {
@@ -174,6 +217,9 @@ export function negotiate(
           ref: '',
           protocols: opts.protocols,
           sdkVersion: SDK_VERSION,
+          // Advisory nav-chrome request; a nav-aware parent sanitizes + applies
+          // it before answering, so ninja-ready's `layout` reflects the result.
+          ...(opts.nav !== undefined ? { nav: opts.nav } : {}),
         },
         // The RequestEnvelope type pins `type` to the wire marker and `detail.type`
         // to a NinjaMethod; a control frame legitimately deviates, so we assert the
@@ -249,7 +295,111 @@ function parseReady(data: unknown): Negotiated | null {
     ? body.ledgers.filter((l): l is string => typeof l === 'string')
     : undefined;
 
+  // layout: optional chrome geometry; omit entirely when absent/malformed so
+  // downstream `undefined` means "parent did not advertise it" (legacy or
+  // pre-layout modern parents), never a fabricated 0.
+  const layout = parseLayout(body.layout);
+
+  // locale: optional user language; same omit-when-invalid discipline.
+  const locale = parseLocale(body.locale);
+
   const negotiated: Negotiated = { protocol, capabilities };
   if (ledgers) negotiated.ledgers = ledgers;
+  if (layout) negotiated.layout = layout;
+  if (locale) negotiated.locale = locale;
   return negotiated;
+}
+
+/** parseLocale — validate an untrusted locale value, or null. */
+function parseLocale(value: unknown): string | null {
+  return typeof value === 'string' && LOCALE_RE.test(value) ? value : null;
+}
+
+/**
+ * parseLocaleFrame — validate + normalize an inbound `ninja-locale` push, or null.
+ * Same boundary discipline and body conventions (detail-nested or top-level)
+ * as `parseLayoutFrame`.
+ */
+export function parseLocaleFrame(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const msg = data as {
+    command?: unknown;
+    type?: unknown;
+    detail?: { locale?: unknown };
+    locale?: unknown;
+  };
+  if (msg.command !== WIRE_COMMAND || msg.type !== LOCALE_TYPE) return null;
+  return parseLocale(msg.detail?.locale ?? msg.locale);
+}
+
+/**
+ * nextLocale — the live locale cell's transition function (validation +
+ * change-dedupe), mirroring `nextLayout`: returns the new locale only when
+ * `data` is a valid `ninja-locale` push that differs from `current`.
+ */
+export function nextLocale(current: string | null, data: unknown): string | null {
+  const parsed = parseLocaleFrame(data);
+  if (!parsed) return null;
+  if (parsed === current) return null;
+  return parsed;
+}
+
+/**
+ * parseLayout — validate an untrusted `layout` field into a `NinjaLayout`, or null.
+ *
+ * WHAT: accepts only `{ navBottom: finite number ≥ 0 }`; anything else -> null.
+ * WHY:  the value comes from a separate codebase over postMessage. Defaulting a
+ *       malformed field to null (rather than 0) preserves the meaning "unknown —
+ *       keep your fallback", so a parent bug can't collapse app chrome to the
+ *       viewport top.
+ */
+function parseLayout(value: unknown): NinjaLayout | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const navBottom = (value as { navBottom?: unknown }).navBottom;
+  if (typeof navBottom !== 'number' || !Number.isFinite(navBottom) || navBottom < 0) {
+    return null;
+  }
+  return { navBottom };
+}
+
+/**
+ * nextLayout — the live layout cell's transition function.
+ *
+ * WHAT: given the CURRENT layout (or null) and an arbitrary inbound raw frame,
+ *       returns the NEW layout when (and only when) the frame is a valid
+ *       `ninja-layout` push that actually changes the value; null otherwise
+ *       (not a layout frame, malformed, or a no-op re-announcement).
+ * WHY:  extracted from `connect()`'s onRaw wiring so the dedupe rule — apps
+ *       only hear `ninja.on('layout')` on real changes, including the
+ *       navBottom:0 edge (a falsy-but-valid value) — is a pure, pinned-by-test
+ *       function instead of untested closure logic.
+ */
+export function nextLayout(current: NinjaLayout | null, data: unknown): NinjaLayout | null {
+  const parsed = parseLayoutFrame(data);
+  if (!parsed) return null;
+  if (current !== null && current.navBottom === parsed.navBottom) return null;
+  return parsed;
+}
+
+/**
+ * parseLayoutFrame — validate + normalize an inbound `ninja-layout` push, or null.
+ *
+ * WHAT: returns the frame's `NinjaLayout` only when `data` is a genuine
+ *       `ninja-layout` control frame (correct `command` + `type` + valid body);
+ *       otherwise null so the raw listener ignores unrelated traffic.
+ * WHY:  same boundary discipline as `parseReady` — the raw channel sees every
+ *       gated frame, and this is the single gate that isolates layout pushes.
+ *       The body may sit under `detail` or at top level (both parent
+ *       conventions exist); we read both, like `parseReady` does.
+ */
+export function parseLayoutFrame(data: unknown): NinjaLayout | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const msg = data as {
+    command?: unknown;
+    type?: unknown;
+    detail?: { layout?: unknown };
+    layout?: unknown;
+  };
+  if (msg.command !== WIRE_COMMAND || msg.type !== LAYOUT_TYPE) return null;
+  return parseLayout(msg.detail?.layout ?? msg.layout);
 }

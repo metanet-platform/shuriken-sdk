@@ -23,6 +23,11 @@ Init once with `connect()`, then use typed sugar (`ninja.pay.bsv`) or the unifor
 - write-clipboard → `ninja.clipboard.write(text)` (no response)
 - uniform core for any method → `ninja.call(method, params, { timeoutMs?, signal? })`
 
+## Layout, nav chrome & locale (v0.2)
+- `ninja.layout()` → `{ navBottom } | null` — MEASURED bottom edge (CSS px) of the platform's fixed nav bar; place your app's top chrome below it (never hardcode the nav height). `null` = parent never advertised (legacy) → use your own fallback. Live changes fire `ninja.on('layout', ({navBottom}) => …)`.
+- `connect({ nav })` → advisory nav styling applied by the parent for your app page and auto-reverted on navigate-away: `{ bg? (same allowlist as navbg), width? (px | 'full'), roundedBottom? (false = square corners), sideMargins? (px from screen edges) }`. Parent clamps/sanitizes; `ninja-ready.layout` already reflects the applied result. Each handshake is authoritative — omitted fields revert to platform defaults.
+- `ninja.locale()` → `'en' | 'pt-BR' | … | null` — the user's platform language; mid-session switches fire `ninja.on('locale', (lng) => …)`. Replaces the DEPRECATED `metanetLang` iframe query param (still appended; use it only as the legacy-parent fallback when `ninja.locale()` is null).
+
 ## Rules
 - Identity: branch on `me.anonymous`, then `me.version` (0 | 1). Only `canonicalId` exists on both. No `wallet || identities` fallback.
 - V1 purposes: `app` (session signer, pub only) + `bsv`/`icp`/`kda` (chain id-field: address/principal/account) + `content` (pure key purpose — pub only, no chain field). Unknown/future purposes pass through verbatim on `me` and via `me.raw`.

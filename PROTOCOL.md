@@ -126,11 +126,40 @@ with `broadcastRawTx(rawTxHex, me.genericUseSeed)`.
 
 ## Handshake & versioning (additive, backward-compatible)
 
-On `connect()` the SDK posts `ninja-hello { protocols, sdkVersion }`. A negotiation-aware
-parent replies `ninja-ready { protocol, capabilities, ledgers }`. Today's parent ignores
-`ninja-hello`; after `readyTimeout` the SDK takes the **assume-legacy** path (protocol 0,
-full command set). Forward-compat rules baked into the codec:
+On `connect()` the SDK posts `ninja-hello { protocols, sdkVersion, nav? }`. A
+negotiation-aware parent replies
+`ninja-ready { protocol, capabilities, ledgers, layout?, locale? }`.
+Today's parent ignores `ninja-hello`; after `readyTimeout` the SDK takes the
+**assume-legacy** path (protocol 0, full command set). Forward-compat rules baked into the
+codec:
 
 1. Unknown response fields are preserved on `.raw`, never rejected.
 2. Unknown `<type>` responses route to `ninja.on(type)`, never dropped.
 3. A frozen app pins `protocols: [0]` and keeps working indefinitely.
+
+### Chrome geometry, nav preferences & locale (v0.2)
+
+- **`ninja-hello.nav`** *(app → parent, advisory)* — `{ bg?, width?, roundedBottom?,
+  sideMargins? }`, set via `connect({ nav })`. The parent sanitizes/clamps every field
+  (same CSS allowlist as `navbg`; width px or `'full'`; margins clamped) and applies it to
+  its nav bar for the lifetime of the app page, reverting automatically when the user
+  navigates away. Requests, not commands: legacy parents ignore the whole object.
+- **`ninja-ready.layout`** *(parent → app)* — `{ navBottom }`: the MEASURED bottom edge of
+  the parent's fixed nav (CSS px from viewport top), taken AFTER applying `nav` prefs.
+  Read it as `ninja.layout()`; place your app's top chrome below it instead of hardcoding
+  the platform's nav height. Absent (`ninja.layout() === null`) on legacy/pre-layout
+  parents — keep a fallback constant.
+- **`ninja-layout`** *(parent → app, unsolicited control frame)* —
+  `{ command: 'ninja-app-command', type: 'ninja-layout', layout: { navBottom } }`, pushed
+  whenever the parent's nav geometry changes. Updates `ninja.layout()` and fires
+  `ninja.on('layout', cb)`. Same source/origin gate as every frame; no signature (it is
+  presentational geometry established before any session key exists, exactly like
+  `ninja-ready`).
+- **`ninja-ready.locale`** *(parent → app)* — the user's platform language (i18n code,
+  validated `[A-Za-z0-9_-]{2,35}`, e.g. `en`, `pt-BR`). Read as `ninja.locale()`. Replaces
+  the deprecated `metanetLang` iframe query param (still appended for older apps): on a
+  legacy parent `ninja.locale()` is `null` — fall back to the param.
+- **`ninja-locale`** *(parent → app, unsolicited control frame)* —
+  `{ command: 'ninja-app-command', type: 'ninja-locale', locale }`, pushed when the user
+  switches language mid-session (something the query param never carried). Updates
+  `ninja.locale()` and fires `ninja.on('locale', cb)`. Same gating as `ninja-layout`.
