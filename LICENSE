@@ -85,10 +85,14 @@ do not agree, do not use the SDK.
 7. THIRD-PARTY COMPONENTS
    The SDK bundles third-party open-source components (including @noble/curves,
    @noble/hashes, and poseidon-lite), each provided under its own license
-   (MIT). This License governs the SDK as a whole and the Licensor's own code,
-   materials, and embedded keys; it does not enlarge or diminish, and does not
-   purport to restrict, Your rights in those third-party components when
-   obtained separately under their own terms.
+   (MIT). Their copyright notices and full license texts are reproduced in the
+   accompanying THIRD_PARTY_NOTICES.md file, which is distributed with the SDK
+   and which You must retain in all copies. This License governs the SDK as a
+   whole and the Licensor's own code, materials, and embedded keys; it does not
+   enlarge or diminish, and does not purport to restrict, Your rights in those
+   third-party components when obtained separately under their own terms. No
+   copyleft- or GPL-licensed component is bundled in the SDK's distributed
+   runtime.
 
 8. TERMINATION
    This License terminates automatically and immediately if You breach any of
